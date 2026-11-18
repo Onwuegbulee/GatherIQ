@@ -13,7 +13,7 @@ export function Brand({ className, light }: { className?: string; light?: boolea
   return (
     <span className={cn("flex items-center gap-2", className)}>
       <BrandMark />
-      <span className={cn("text-[15px] font-semibold tracking-tight", light ? "text-white" : "text-ink")}>ChurchCount AI</span>
+      <span className={cn("text-[15px] font-semibold tracking-tight", light ? "text-white" : "text-ink")}>GatherIQ</span>
     </span>
   );
 }

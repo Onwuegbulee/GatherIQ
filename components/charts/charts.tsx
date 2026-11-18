@@ -49,10 +49,7 @@ function TrendTip({ active, payload }: { active?: boolean; payload?: { payload: 
       <p className="font-semibold text-ink">{p.name}</p>
       <p className="text-muted">{formatDate(p.date)}</p>
       <p className="mt-2 text-2xl font-semibold tabular-nums text-ink">{p.attendance.toLocaleString()}</p>
-      <div className="mt-2 space-y-1">
-        <div className="flex items-center justify-between gap-4"><span className="flex items-center gap-1.5"><i className="h-2 w-2 rounded-full" style={{ background: COLORS.male }} />Men</span><b className="tabular-nums">{p.male.toLocaleString()}</b></div>
-        <div className="flex items-center justify-between gap-4"><span className="flex items-center gap-1.5"><i className="h-2 w-2 rounded-full" style={{ background: COLORS.female }} />Women</span><b className="tabular-nums">{p.female.toLocaleString()}</b></div>
-      </div>
+      <p className="mt-1 text-[11px] font-medium tracking-wide text-brand-dark">TOTAL PEOPLE COUNTED</p>
     </div>
   );
 }

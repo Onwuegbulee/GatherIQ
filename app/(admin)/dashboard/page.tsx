@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge, SampleBadge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/page-header";
 import { StatCard } from "@/components/dashboard/stat-card";
-import { COLORS, Gauge, GenderBars, GenderDonut, TrendArea, WeekdayRadar } from "@/components/charts/charts";
+import { COLORS, Gauge, GenderBars, GenderDonut, TrackBars, TrendArea, WeekdayRadar } from "@/components/charts/charts";
 import { StatusBadge } from "@/components/status-badge";
 import { ServiceIcon } from "@/lib/service-meta";
 import { useUI } from "@/components/ui-provider";
@@ -49,12 +49,12 @@ export default function DashboardPage() {
   const insights = useMemo(() => {
     const list = [
       `Sunday attendance is ${g >= 0 ? "up" : "down"} ${Math.abs(g).toFixed(1)}% compared with the previous Sunday.`,
-      `Women made up ${womenPct.toFixed(0)}% of everyone counted across your recorded services.`,
+      `You have recorded ${records.length} total attendance sessions across all service types.`,
       top[0] ? `Your busiest service was ${top[0].serviceName} on ${formatDate(top[0].date)} with ${top[0].attendance.toLocaleString()} people.` : "Record a service to see highlights here.",
     ];
     if (pending) list.push(`${pending} session${pending > 1 ? "s are" : " is"} waiting for your confirmation.`);
     return list;
-  }, [g, womenPct, top, pending]);
+  }, [g, top, pending, records.length]);
   useEffect(() => {
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     const id = setInterval(() => setInsight((i) => (i + 1) % insights.length), 6000);
@@ -94,15 +94,25 @@ export default function DashboardPage() {
         </Card>
 
         <Card className="xl:col-span-4">
-          <CardHeader className="flex-row items-start justify-between"><div><CardTitle>Men and women</CardTitle><CardDescription>Share of everyone counted</CardDescription></div><SampleBadge /></CardHeader>
+          <CardHeader className="flex-row items-start justify-between"><div><CardTitle>Attendance by service</CardTitle><CardDescription>Share of all recorded attendees</CardDescription></div><SampleBadge /></CardHeader>
           <CardContent>
-            <GenderDonut male={gt.male} female={gt.female} size={190} />
-            <div className="mt-5 space-y-3">
-              {[{ n: "Women", v: gt.female, c: COLORS.female }, { n: "Men", v: gt.male, c: COLORS.male }].map((x) => (
-                <div key={x.n}>
-                  <div className="mb-1 flex items-center justify-between text-sm"><span className="flex items-center gap-2"><i className="h-2.5 w-2.5 rounded-full" style={{ background: x.c }} />{x.n}</span><span><b className="tabular-nums">{x.v.toLocaleString()}</b> <span className="text-muted">· {((x.v / gTotal) * 100).toFixed(1)}%</span></span></div>
-                  <div className="h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full transition-[width] duration-700" style={{ width: `${(x.v / gTotal) * 100}%`, background: x.c }} /></div>
-                </div>))}
+            <div className="space-y-4 pt-2">
+              {Array.from(new Set(records.map((r) => r.serviceType))).slice(0, 4).map((type) => {
+                const typeTotal = records.filter((r) => r.serviceType === type).reduce((a, b) => a + b.attendance, 0);
+                const allTotal = records.reduce((a, b) => a + b.attendance, 0) || 1;
+                const pct = ((typeTotal / allTotal) * 100).toFixed(1);
+                return (
+                  <div key={type}>
+                    <div className="mb-1.5 flex items-center justify-between text-sm">
+                      <span className="font-medium text-slate-800">{type}</span>
+                      <span><b className="tabular-nums">{typeTotal.toLocaleString()}</b> <span className="text-muted">· {pct}%</span></span>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                      <div className="h-full rounded-full bg-brand transition-[width] duration-700" style={{ width: `${pct}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </CardContent>
         </Card>
@@ -117,10 +127,10 @@ export default function DashboardPage() {
 
         <Card className="xl:col-span-8">
           <CardHeader className="flex-row flex-wrap items-start justify-between gap-3">
-            <div><CardTitle>Men and women by service</CardTitle><CardDescription>Your last 8 recorded sessions</CardDescription></div>
-            <div className="flex items-center gap-3 text-xs text-muted"><span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full" style={{ background: COLORS.male }} />Men</span><span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full" style={{ background: COLORS.female }} />Women</span><SampleBadge /></div>
+            <div><CardTitle>Recent session attendance</CardTitle><CardDescription>Total people counted across your last 8 sessions</CardDescription></div>
+            <SampleBadge />
           </CardHeader>
-          <CardContent><GenderBars data={last8.map((p) => ({ label: p.label, male: p.male, female: p.female }))} height={240} /></CardContent>
+          <CardContent><TrackBars data={last8.map((p) => ({ name: p.label, value: p.attendance }))} height={240} unit="Attendees" /></CardContent>
         </Card>
 
         <Card className="xl:col-span-4">
@@ -175,7 +185,7 @@ export default function DashboardPage() {
         <CardContent className="px-0 pb-2">
           <div className="overflow-x-auto scroll-thin">
             <table className="w-full min-w-[680px] text-sm">
-              <thead><tr className="text-left text-xs text-muted">{["Service", "Date", "Attendance", "Men / Women", "Duration", "Status"].map((h) => <th key={h} className="bg-slate-50 px-5 py-2.5 font-medium first:rounded-l-xl last:rounded-r-xl">{h}</th>)}</tr></thead>
+              <thead><tr className="text-left text-xs text-muted">{["Service", "Date", "Attendance", "Method", "Duration", "Status"].map((h) => <th key={h} className="bg-slate-50 px-5 py-2.5 font-medium first:rounded-l-xl last:rounded-r-xl">{h}</th>)}</tr></thead>
               <tbody>
                 {recent.length === 0 && <tr><td colSpan={6} className="px-5 py-10 text-center text-muted">No {tab.toLowerCase()} sessions.</td></tr>}
                 {recent.map((r) => (
@@ -183,7 +193,7 @@ export default function DashboardPage() {
                     <td className="px-5 py-3"><div className="flex items-center gap-3"><ServiceIcon type={r.serviceType} /><div><p className="font-medium">{r.serviceName}</p>{!r.isSample && <Badge tone="green">Saved here</Badge>}</div></div></td>
                     <td className="px-5 py-3 text-muted">{formatDate(r.date)}</td>
                     <td className="px-5 py-3 font-semibold tabular-nums">{r.attendance.toLocaleString()}</td>
-                    <td className="px-5 py-3"><div className="flex h-2 w-28 overflow-hidden rounded-full bg-slate-100" title={`Men ${r.male} · Women ${r.female}`}><i style={{ width: `${(r.male / r.attendance) * 100}%`, background: COLORS.male }} /><i style={{ width: `${(r.female / r.attendance) * 100}%`, background: COLORS.female }} /></div></td>
+                    <td className="px-5 py-3 text-xs text-muted font-medium">{r.countSource === "ai" ? "AI Count" : r.isSample ? "Sample" : "Manual"}</td>
                     <td className="px-5 py-3 text-muted">{formatMinutes(r.durationSeconds)}</td>
                     <td className="px-5 py-3"><StatusBadge status={r.status} /></td>
                   </tr>))}

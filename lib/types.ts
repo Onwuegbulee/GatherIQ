@@ -1,6 +1,12 @@
 export type ScannerState = "ready" | "recording" | "paused" | "processing" | "completed";
 
-export interface ServiceCategory { id: string; name: string; description: string }
+export interface ServiceCategory {
+  id: string;
+  name: string;
+  description: string;
+  sessionCount?: number;
+  averageAttendance?: number;
+}
 
 export interface AttendanceRecord {
   id: string;
@@ -8,31 +14,54 @@ export interface AttendanceRecord {
   serviceType: string;
   date: string; // YYYY-MM-DD
   attendance: number;
-  male: number;
-  female: number;
   durationSeconds: number;
   status: "Confirmed" | "Pending";
   createdBy: string;
   description?: string;
-  /** true for built-in demonstration records, false for sessions saved from this browser */
+  countSource?: "ai" | "demo" | "manual";
+  /** true for sample records, false for real sessions */
   isSample: boolean;
+  male?: number;
+  female?: number;
 }
 
-export interface SessionDraft { serviceName: string; serviceType: string; date: string; description: string }
+export interface SessionDraft {
+  id?: string;
+  serviceId?: string;
+  serviceName: string;
+  serviceType: string;
+  date: string;
+  description: string;
+}
 
 export interface SessionResult extends SessionDraft {
   count: number;
-  male: number;
-  female: number;
   durationSeconds: number;
   endedAt: string;
-  /** Always true until a real detection engine is connected. */
+  countSource: "ai" | "demo" | "manual";
   isDemoCount: boolean;
+  male?: number;
+  female?: number;
 }
 
 export interface AppSettings {
-  churchName: string; churchLocation: string; adminName: string; adminEmail: string;
+  churchName: string;
+  churchLocation: string;
+  adminName: string;
+  adminEmail: string;
   attendanceTarget: number;
-  preferredCamera: string; facingMode: "environment" | "user"; videoQuality: "low" | "medium" | "high";
-  notifyOnSave: boolean; notifyWeekly: boolean; compactTables: boolean;
+  preferredCamera: string;
+  facingMode: "environment" | "user";
+  videoQuality: "low" | "medium" | "high";
+  notifyOnSave: boolean;
+  notifyWeekly: boolean;
+  compactTables: boolean;
+}
+
+export interface UserProfile {
+  id: string;
+  churchId: string;
+  fullName: string;
+  email: string;
+  role: string;
 }

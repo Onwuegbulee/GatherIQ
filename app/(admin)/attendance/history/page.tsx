@@ -28,7 +28,7 @@ function RowMenu({ r }: { r: AttendanceRecord }) {
       {(close) => (<div onClick={(e) => e.stopPropagation()}>
         <MenuItem onClick={() => { close(); ui.openRecord(r.id); }}><Eye className="h-4 w-4" />View details</MenuItem>
         {r.status === "Pending" && <MenuItem onClick={() => { close(); confirmRecord(r.id); ui.toast("Attendance confirmed"); }}><CheckCircle2 className="h-4 w-4" />Confirm attendance</MenuItem>}
-        <MenuItem onClick={() => { close(); downloadCsv(`${r.serviceName}-${r.date}.csv`, [["Service", "Date", "Attendance", "Men", "Women", "Status"], [r.serviceName, r.date, r.attendance, r.male, r.female, r.status]]); }}><Download className="h-4 w-4" />Export record</MenuItem>
+        <MenuItem onClick={() => { close(); downloadCsv(`${r.serviceName}-${r.date}.csv`, [["Service", "Date", "Attendance", "Duration", "Status", "Source"], [r.serviceName, r.date, r.attendance, formatMinutes(r.durationSeconds), r.status, r.countSource || (r.isSample ? "Sample" : "Saved")]]); }}><Download className="h-4 w-4" />Export record</MenuItem>
         {!r.isSample && <MenuItem className="text-danger hover:bg-red-50" onClick={() => { close(); deleteRecord(r.id); ui.toast("Record deleted", "info"); }}><Trash2 className="h-4 w-4" />Delete record</MenuItem>}
       </div>)}
     </Popover>
@@ -72,7 +72,7 @@ export default function HistoryPage() {
   const toggleSort = (key: SortKey) => setSort((s) => (s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "desc" }));
   const togglePick = (id: string) => setPicked((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const exportRows = (picked.size ? filtered.filter((r) => picked.has(r.id)) : filtered);
-  const exportCsv = () => { downloadCsv("attendance-history.csv", [["Service", "Type", "Date", "Attendance", "Men", "Women", "Duration", "Status", "Source"], ...exportRows.map((r) => [r.serviceName, r.serviceType, r.date, r.attendance, r.male, r.female, formatMinutes(r.durationSeconds), r.status, r.isSample ? "Sample" : "Saved"])]); ui.toast(`Exported ${exportRows.length} record${exportRows.length === 1 ? "" : "s"}`); };
+  const exportCsv = () => { downloadCsv("attendance-history.csv", [["Service", "Type", "Date", "Attendance", "Duration", "Status", "Source"], ...exportRows.map((r) => [r.serviceName, r.serviceType, r.date, r.attendance, formatMinutes(r.durationSeconds), r.status, r.countSource || (r.isSample ? "Sample" : "Saved")])]); ui.toast(`Exported ${exportRows.length} record${exportRows.length === 1 ? "" : "s"}`); };
 
   const SortHead = ({ k, children, className }: { k: SortKey; children: React.ReactNode; className?: string }) => (
     <th className={cn("px-4 py-3 font-medium", className)} aria-sort={sort.key === k ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}>
@@ -155,8 +155,8 @@ export default function HistoryPage() {
                     <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={`Select ${r.serviceName}`} checked={picked.has(r.id)} onChange={() => togglePick(r.id)} className="h-4 w-4 accent-brand" /></td>
                     <td className="px-4 py-3"><div className="flex items-center gap-3"><ServiceIcon type={r.serviceType} className="h-10 w-10" /><div className="min-w-0"><p className="truncate font-medium">{r.serviceName}</p><div className="mt-0.5 flex gap-1">{r.isSample ? <Badge tone="amber">Sample</Badge> : <Badge tone="green">Saved here</Badge>}</div></div></div></td>
                     <td className="px-4 py-3"><p className="font-medium">{formatDate(r.date, { day: "numeric", month: "short" })}</p><p className="text-xs text-muted">{formatDate(r.date, { weekday: "long" })}</p></td>
-                    <td className="px-4 py-3"><div className="flex items-center justify-between"><b className="tabular-nums">{r.attendance.toLocaleString()}</b><span className="text-xs text-muted tabular-nums">♂ {r.male} · ♀ {r.female}</span></div>
-                      <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-slate-100" style={{ width: "100%" }}><div className="flex h-full overflow-hidden rounded-full" style={{ width: `${(r.attendance / peak) * 100}%` }}><i style={{ width: `${(r.male / r.attendance) * 100}%`, background: COLORS.male }} /><i style={{ width: `${(r.female / r.attendance) * 100}%`, background: COLORS.female }} /></div></div></td>
+                    <td className="px-4 py-3"><div className="flex items-center justify-between"><b className="tabular-nums">{r.attendance.toLocaleString()}</b><span className="text-xs text-muted font-medium">{r.countSource === "ai" ? "AI Count" : r.isSample ? "Sample" : "Manual"}</span></div>
+                      <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-slate-100" style={{ width: "100%" }}><div className="h-full rounded-full bg-brand" style={{ width: `${Math.min(100, (r.attendance / (peak || 1)) * 100)}%` }} /></div></td>
                     <td className="px-4 py-3 text-muted">{formatMinutes(r.durationSeconds)}</td>
                     <td className="px-4 py-3"><StatusBadge status={r.status} /></td>
                     <td className="px-4 py-3 text-right"><RowMenu r={r} /></td>

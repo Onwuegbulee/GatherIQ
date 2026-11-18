@@ -4,7 +4,7 @@ import { formatDate } from "./utils";
 export const sum = (r: AttendanceRecord[]) => r.reduce((a, x) => a + x.attendance, 0);
 export const avg = (r: AttendanceRecord[]) => (r.length ? Math.round(sum(r) / r.length) : 0);
 export const chronological = (r: AttendanceRecord[]) => [...r].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
-export const genderTotals = (r: AttendanceRecord[]) => ({ male: r.reduce((a, x) => a + x.male, 0), female: r.reduce((a, x) => a + x.female, 0) });
+export const genderTotals = (r: AttendanceRecord[]) => ({ male: r.reduce((a, x) => a + (x.male || 0), 0), female: r.reduce((a, x) => a + (x.female || 0), 0) });
 
 export function growth(records: AttendanceRecord[]) {
   const s = chronological(records.filter((r) => r.serviceType === "Sunday Service"));
@@ -21,9 +21,9 @@ export function averageByType(records: AttendanceRecord[]) {
   return groups.map(([type, name]) => ({ name, average: avg(records.filter((r) => r.serviceType === type)) }));
 }
 
-export interface TrendPoint { label: string; attendance: number; male: number; female: number; name: string; date: string }
+export interface TrendPoint { label: string; attendance: number; male?: number; female?: number; name: string; date: string }
 export const trendPoints = (records: AttendanceRecord[], n = 10): TrendPoint[] =>
-  chronological(records).slice(-n).map((r) => ({ label: formatDate(r.date, { day: "numeric", month: "short" }), attendance: r.attendance, male: r.male, female: r.female, name: r.serviceName, date: r.date }));
+  chronological(records).slice(-n).map((r) => ({ label: formatDate(r.date, { day: "numeric", month: "short" }), attendance: r.attendance, male: r.male || 0, female: r.female || 0, name: r.serviceName, date: r.date }));
 
 export function runningAverage(values: number[]) {
   let t = 0;

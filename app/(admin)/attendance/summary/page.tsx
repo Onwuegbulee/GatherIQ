@@ -6,7 +6,6 @@ import { CheckCircle2, Info } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { GenderSplit } from "@/components/record-details";
 import { useUI } from "@/components/ui-provider";
 import { useApp } from "@/context/app-context";
 import { formatDate, formatDuration } from "@/lib/utils";
@@ -40,9 +39,17 @@ export default function SummaryPage() {
     );
 
   const r = result!;
-  const rows: [string, string][] = [["Service name", r.serviceName], ["Attendance date", formatDate(r.date)], ["Scanning duration", formatDuration(r.durationSeconds)], ["Session status", "Completed"]];
-  const confirm = () => {
-    const rec = saveRecord(r);
+  const sourceLabel = r.countSource === "ai" ? "Real-time AI Detection" : r.isDemoCount ? "Demonstration Count" : "Manual Count";
+  const rows: [string, string][] = [
+    ["Service name", r.serviceName],
+    ["Service type", r.serviceType],
+    ["Attendance date", formatDate(r.date)],
+    ["Scanning duration", formatDuration(r.durationSeconds)],
+    ["Count source", sourceLabel],
+    ["Session status", "Completed"],
+  ];
+  const confirm = async () => {
+    const rec = await saveRecord(r);
     setSavedId(rec.id); setResult(null); setDraft(null);
     if (settings.notifyOnSave) ui.toast("Attendance saved to your records");
   };
@@ -52,10 +59,13 @@ export default function SummaryPage() {
       <div className="mt-6 rounded-3xl bg-gradient-to-br from-forest via-forest-800 to-[#166534] p-8 text-center text-white shadow-card">
         <p className="text-7xl font-semibold tabular-nums tracking-tight">{r.count.toLocaleString()}</p>
         <p className="mt-2 text-xs font-medium tracking-[0.2em] text-white/70">TOTAL PEOPLE COUNTED</p>
-        {r.isDemoCount && <Badge tone="amber" className="mt-4">Demonstration count</Badge>}
+        {r.isDemoCount ? (
+          <Badge tone="amber" className="mt-4">Demonstration count</Badge>
+        ) : (
+          <Badge tone="green" className="mt-4">AI Verified Count</Badge>
+        )}
       </div>
-      <Card className="mt-4 p-5"><p className="mb-3 text-sm font-medium">Men and women</p><GenderSplit male={r.male} female={r.female} /></Card>
-      {r.isDemoCount && <div className="mt-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-sm text-amber-800"><Info className="mt-0.5 h-4 w-4 shrink-0" /><p>These numbers were entered manually in demo mode. AI counting isn’t connected yet, so this is sample data, not a detected total.</p></div>}
+      {r.isDemoCount && <div className="mt-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-sm text-amber-800"><Info className="mt-0.5 h-4 w-4 shrink-0" /><p>This session was recorded in demo mode. Connect camera video frames with the AI vision engine for automated object tracking.</p></div>}
       <Card className="mt-4"><dl className="divide-y divide-line">
         {rows.map(([k, v]) => <div key={k} className="flex items-center justify-between gap-4 px-5 py-3 text-sm"><dt className="text-muted">{k}</dt><dd className="font-medium">{v}</dd></div>)}
         <div className="px-5 py-3 text-sm"><dt className="text-muted">Attendance confirmation</dt><dd className="mt-0.5 font-medium">Review the count above, then confirm to save it to your records.</dd></div>

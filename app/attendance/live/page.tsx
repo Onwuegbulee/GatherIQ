@@ -33,7 +33,7 @@ function Scanner() {
   const { draft, settings, setResult } = useApp();
   const router = useRouter();
   const cam = useCamera({ facing: settings.facingMode, quality: settings.videoQuality, deviceId: settings.preferredCamera });
-  const session = useAttendanceSession();
+  const session = useAttendanceSession(draft?.id);
   const [confirm, setConfirm] = useState<"end" | "leave" | null>(null);
   const { state } = session;
   const active = state === "recording" || state === "paused";
@@ -42,6 +42,29 @@ function Scanner() {
 
   // Auto-pause if the camera drops while recording
   useEffect(() => { if (cam.status === "error" && state === "recording") session.pause(); }, [cam.status, state, session]);
+
+  // Frame sampling for real-time WebSocket CV processing
+  useEffect(() => {
+    if (cam.status !== "active" || state !== "recording") return;
+    const interval = setInterval(() => {
+      const video = cam.videoElementRef.current;
+      if (!video || video.readyState < 2) return;
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.min(video.videoWidth || 640, 640);
+        canvas.height = Math.min(video.videoHeight || 480, 480);
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const dataUrl = canvas.toDataURL("image/jpeg", 0.65);
+          session.sendFrame(dataUrl);
+        }
+      } catch {
+        // frame sampling skipped
+      }
+    }, 1500);
+    return () => clearInterval(interval);
+  }, [cam.status, state, session, cam.videoRef]);
 
   // Guard against accidental loss: tab close/refresh and the browser back button
   useEffect(() => {
@@ -62,7 +85,14 @@ function Scanner() {
     cam.stop();
     setTimeout(() => {
       session.complete();
-      setResult({ ...draft!, count: session.count, male: session.male, female: session.female, durationSeconds: session.elapsed, endedAt: new Date().toISOString(), isDemoCount: true });
+      setResult({
+        ...draft!,
+        count: session.count,
+        countSource: session.countSource,
+        durationSeconds: session.elapsed,
+        endedAt: new Date().toISOString(),
+        isDemoCount: !session.isGenuineAI,
+      });
       router.replace("/attendance/summary");
     }, 1600);
   }, [cam, draft, router, session, setResult]);
@@ -94,7 +124,13 @@ function Scanner() {
         {/* Counter */}
         {camOn && (
           <div className="absolute bottom-44 left-1/2 z-10 -translate-x-1/2 max-lg:landscape:bottom-4 max-lg:landscape:left-4 max-lg:landscape:translate-x-0">
-            <Counter male={session.male} female={session.female} count={session.count} state={state} onAdjust={session.adjustDemoCount} />
+            <Counter
+              count={session.count}
+              state={state}
+              isGenuineAI={session.isGenuineAI}
+              countSource={session.countSource}
+              onAdjust={session.adjustCount}
+            />
           </div>
         )}
         {state === "paused" && camOn && <div className="pointer-events-none absolute inset-x-0 top-1/3 z-10 text-center"><span className="rounded-full bg-black/55 px-4 py-2 text-sm font-medium backdrop-blur-md">Scanning paused</span></div>}
@@ -150,7 +186,7 @@ function Scanner() {
       </div>
 
       <Modal dark open={confirm === "end"} onClose={() => setConfirm(null)} title="End attendance?">
-        <p className="text-sm text-white/70">{session.count.toLocaleString()} people counted ({session.male.toLocaleString()} men, {session.female.toLocaleString()} women) in {time}. The camera will turn off and you’ll review the summary.</p>
+        <p className="text-sm text-white/70">{session.count.toLocaleString()} people counted in {time}. The camera will turn off and you’ll review the summary.</p>
         <div className="mt-5 flex gap-2"><button onClick={() => setConfirm(null)} className="h-11 flex-1 rounded-lg bg-white/10 font-medium">Keep scanning</button><button onClick={finish} className="h-11 flex-1 rounded-lg bg-danger font-medium">End attendance</button></div>
       </Modal>
       <Modal dark open={confirm === "leave"} onClose={() => setConfirm(null)} title="Leave this session?">

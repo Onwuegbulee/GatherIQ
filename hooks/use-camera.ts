@@ -104,5 +104,5 @@ export function useCamera(opts: UseCameraOptions = {}) {
     return () => { mounted.current = false; streamRef.current?.getTracks().forEach((t) => t.stop()); streamRef.current = null; };
   }, []);
 
-  return { videoRef: setVideoEl, status, error, facing, devices, canSwitch, start, stop, switchCamera };
+  return { videoRef: setVideoEl, videoElementRef: videoRef, status, error, facing, devices, canSwitch, start, stop, switchCamera };
 }

@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Eye, EyeOff, Lock, ScanFace, ShieldCheck, Users } from "lucide-react";
+import { Eye, EyeOff, ScanFace, ShieldCheck, Users } from "lucide-react";
 import { Brand } from "@/components/brand";
 import { LoginArt } from "@/components/login-art";
 import { Button } from "@/components/ui/button";
@@ -21,7 +21,7 @@ export default function LoginPage() {
 
   useEffect(() => { if (ready && authed) router.replace("/dashboard"); }, [ready, authed, router]);
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     const next: typeof errors = {};
     if (!/^\S+@\S+\.\S+$/.test(email)) next.email = "Enter a valid email address.";
@@ -29,7 +29,14 @@ export default function LoginPage() {
     setErrors(next);
     if (Object.keys(next).length) return;
     setBusy(true);
-    setTimeout(() => { login(remember); router.push("/dashboard"); }, 500); // mock authentication
+    try {
+      await login(email, password, remember);
+      router.push("/dashboard");
+    } catch {
+      setErrors({ email: "Authentication failed. Check your credentials or try again." });
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -55,7 +62,7 @@ export default function LoginPage() {
             </div>
             <Button type="submit" size="lg" className="w-full" disabled={busy}>{busy ? "Logging in…" : "Log in"}</Button>
           </form>
-          <p className="mt-6 flex items-center gap-1.5 text-xs text-muted"><Lock className="h-3.5 w-3.5" />Preview build: any valid email and a 6+ character password will work.</p>
+          <p className="mt-6 flex items-center gap-1.5 text-xs text-muted">Your account must be set up by your church administrator.</p>
         </section>
 
         <section className="relative hidden overflow-hidden bg-gradient-to-br from-forest via-forest-800 to-[#15803D] p-10 text-white lg:flex lg:flex-col lg:justify-between">

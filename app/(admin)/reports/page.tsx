@@ -48,9 +48,9 @@ export default function ReportsPage() {
   const gt = genderTotals(data);
   const trend = trendPoints(data, 16);
 
-  const exportCsv = () => { downloadCsv(`churchcount-report-${latest}.csv`, [
-    ["Service", "Service type", "Date", "Attendance", "Men", "Women", "Duration", "Status", "Source"],
-    ...data.map((r) => [r.serviceName, r.serviceType, r.date, r.attendance, r.male, r.female, formatMinutes(r.durationSeconds), r.status, r.isSample ? "Sample" : "Saved"]),
+  const exportCsv = () => { downloadCsv(`gatheriq-report-${latest}.csv`, [
+    ["Service", "Service type", "Date", "Total Attendance", "Duration", "Status", "Source"],
+    ...data.map((r) => [r.serviceName, r.serviceType, r.date, r.attendance, formatMinutes(r.durationSeconds), r.status, r.countSource || (r.isSample ? "Sample" : "Saved")]),
   ]); ui.toast("Report downloaded"); };
 
   return (
@@ -73,14 +73,11 @@ export default function ReportsPage() {
           <StatCard icon={TrendingUp} label="Sunday growth" value={g} decimals={1} prefix={g >= 0 ? "+" : ""} suffix="%" hint="Latest vs previous Sunday" spark={sundaySeries(data)} />
         </div>
         <div className="mt-6 grid gap-4 xl:grid-cols-12">
-          <Card className="xl:col-span-8"><CardHeader className="flex-row justify-between"><div><CardTitle>Attendance trend</CardTitle><CardDescription>Every session, oldest to newest</CardDescription></div><SampleBadge /></CardHeader><CardContent><TrendArea data={trend} /></CardContent></Card>
-          <Card className="xl:col-span-4"><CardHeader className="flex-row justify-between"><div><CardTitle>Men and women</CardTitle><CardDescription>In the selected period</CardDescription></div><SampleBadge /></CardHeader>
-            <CardContent><GenderDonut male={gt.male} female={gt.female} size={180} /><div className="mt-4 flex justify-center gap-5 text-sm"><span className="flex items-center gap-2"><i className="h-2.5 w-2.5 rounded-full" style={{ background: COLORS.male }} />Men <b className="tabular-nums">{gt.male.toLocaleString()}</b></span><span className="flex items-center gap-2"><i className="h-2.5 w-2.5 rounded-full" style={{ background: COLORS.female }} />Women <b className="tabular-nums">{gt.female.toLocaleString()}</b></span></div></CardContent></Card>
+          <Card className="xl:col-span-12"><CardHeader className="flex-row justify-between"><div><CardTitle>Attendance trend</CardTitle><CardDescription>Every session in the selected period, oldest to newest</CardDescription></div><SampleBadge /></CardHeader><CardContent><TrendArea data={trend} /></CardContent></Card>
           <Card className="xl:col-span-6"><CardHeader className="flex-row justify-between"><div><CardTitle>Weekly attendance</CardTitle><CardDescription>Total counted per week</CardDescription></div><SampleBadge /></CardHeader><CardContent><TrackBars data={weekly} unit="Total" /></CardContent></Card>
-          <Card className="xl:col-span-6"><CardHeader className="flex-row justify-between"><div><CardTitle>Men and women by service</CardTitle><CardDescription>Latest 10 sessions</CardDescription></div><SampleBadge /></CardHeader><CardContent><GenderBars data={trendPoints(data, 10).map((p) => ({ label: p.label, male: p.male, female: p.female }))} height={260} /></CardContent></Card>
-          <Card className="xl:col-span-8"><CardHeader className="flex-row justify-between"><div><CardTitle>Monthly attendance by service</CardTitle><CardDescription>Average per session each month</CardDescription></div><SampleBadge /></CardHeader>
+          <Card className="xl:col-span-6"><CardHeader className="flex-row justify-between"><div><CardTitle>Service comparison</CardTitle><CardDescription>Average attendance per session type</CardDescription></div><SampleBadge /></CardHeader><CardContent><TrackBars data={averageByType(data).map((a) => ({ name: a.name, value: a.average }))} height={260} /></CardContent></Card>
+          <Card className="xl:col-span-12"><CardHeader className="flex-row justify-between"><div><CardTitle>Monthly attendance by service</CardTitle><CardDescription>Average per session each month</CardDescription></div><SampleBadge /></CardHeader>
             <CardContent><GroupedBars data={monthly} keys={[{ key: "Sunday", name: "Sunday Service", color: "#16A34A" }, { key: "Wednesday", name: "Wednesday Service", color: "#86EFAC" }, { key: "Special", name: "Special Programmes", color: "#0F172A" }]} /></CardContent></Card>
-          <Card className="xl:col-span-4"><CardHeader><CardTitle>Service comparison</CardTitle><CardDescription>Average per session</CardDescription></CardHeader><CardContent><TrackBars data={averageByType(data).map((a) => ({ name: a.name, value: a.average }))} height={300} /></CardContent></Card>
         </div>
       </>)}
     </>
