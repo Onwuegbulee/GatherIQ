@@ -37,8 +37,9 @@ def create_access_token(user: User) -> tuple[str, int]:
     now = datetime.now(timezone.utc)
     payload = {
         "sub": str(user.id),
-        "church_id": str(user.church_id),
+        "church_id": str(user.church_id) if user.church_id else None,
         "role": user.role,
+        "must_change_password": user.must_change_password,
         "type": "access",
         "iat": int(now.timestamp()),
         "exp": int((now + timedelta(minutes=minutes)).timestamp()),
@@ -145,16 +146,35 @@ def get_current_user(
     payload = decode_access_token(credentials.credentials)
     try:
         user_id = uuid.UUID(payload["sub"])
-        church_id = uuid.UUID(payload["church_id"])
     except (KeyError, ValueError) as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required.") from exc
     user = db.scalar(select(User).where(User.id == user_id))
-    if user is None or not user.is_active or user.church_id != church_id:
+    if user is None or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required.")
+    
+    # Check church-level consistency
+    raw_church_id = payload.get("church_id")
+    token_church_id = uuid.UUID(raw_church_id) if raw_church_id else None
+    if user.church_id != token_church_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required.")
+
+    # Check church active status if user belongs to a church
+    if user.church_id is not None:
+        from app.models import Church
+        church = db.scalar(select(Church).where(Church.id == user.church_id))
+        if church is None or not church.is_active:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This church account is suspended. Contact platform administrator.")
+
     return user
 
 
 def require_admin(user: User = Depends(get_current_user)) -> User:
-    if user.role != "admin":
+    if user.role not in ("admin", "super_admin"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Administrator permissions required.")
+    return user
+
+
+def require_super_admin(user: User = Depends(get_current_user)) -> User:
+    if user.role != "super_admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Super administrator permissions required.")
     return user

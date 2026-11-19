@@ -60,8 +60,48 @@ export interface AppSettings {
 
 export interface UserProfile {
   id: string;
-  churchId: string;
+  churchId?: string | null;
   fullName: string;
   email: string;
   role: string;
+  isActive?: boolean;
+  mustChangePassword?: boolean;
+}
+
+export interface ChurchDetails {
+  id: string;
+  name: string;
+  location: string;
+  email: string;
+  phone: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt?: string;
+  adminName?: string;
+  adminEmail?: string;
+  totalSessions: number;
+  totalAttendance: number;
+}
+
+export interface ActivityLogItem {
+  id: string;
+  userId?: string | null;
+  userEmail: string;
+  churchId?: string | null;
+  action: string;
+  targetType: string;
+  targetId: string;
+  details: string;
+  ipAddress: string;
+  createdAt: string;
+}
+
+export interface PlatformOverviewData {
+  totalChurches: number;
+  activeChurches: number;
+  suspendedChurches: number;
+  totalAdministrators: number;
+  totalSessions: number;
+  totalAttendanceRecorded: number;
+  recentActivity: ActivityLogItem[];
 }

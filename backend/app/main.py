@@ -7,8 +7,9 @@ from fastapi.responses import JSONResponse
 
 from app.api import api_router
 from app.config import get_settings
-from app.database import Base, engine
+from app.database import Base, SessionLocal, engine
 from app.sessions_service import TransitionError
+from app.setup import ensure_initial_super_admin
 
 logging.basicConfig(
     level=logging.INFO,
@@ -21,6 +22,12 @@ logger = logging.getLogger("gatheriq")
 async def lifespan(app: FastAPI):
     logger.info("Initializing GatherIQ database tables...")
     Base.metadata.create_all(bind=engine)
+    try:
+        with SessionLocal() as db:
+            super_admin = ensure_initial_super_admin(db)
+            logger.info("Initial Super Admin verified/provisioned: %s", super_admin.email)
+    except Exception as exc:
+        logger.warning("Could not auto-provision Super Admin on startup: %s", exc)
     logger.info("GatherIQ backend started successfully.")
     yield
     logger.info("GatherIQ backend shutting down.")

@@ -17,6 +17,9 @@ class Church(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     location: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    email: Mapped[str] = mapped_column(String(320), nullable=False, default="")
+    phone: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
 
@@ -30,16 +33,32 @@ class User(Base):
     __table_args__ = (UniqueConstraint("email", name="uq_users_email"),)
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    church_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("churches.id", ondelete="CASCADE"), index=True, nullable=False)
+    church_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("churches.id", ondelete="CASCADE"), index=True, nullable=True)
     full_name: Mapped[str] = mapped_column(String(200), nullable=False)
     email: Mapped[str] = mapped_column(String(320), nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(32), nullable=False, default="admin")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    must_change_password: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
-    church: Mapped[Church] = relationship(back_populates="users")
+    church: Mapped[Church | None] = relationship(back_populates="users")
     refresh_tokens: Mapped[list["RefreshToken"]] = relationship(back_populates="user")
+
+
+class ActivityLog(Base):
+    __tablename__ = "activity_logs"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    user_email: Mapped[str] = mapped_column(String(320), nullable=False, default="")
+    church_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("churches.id", ondelete="CASCADE"), nullable=True)
+    action: Mapped[str] = mapped_column(String(120), nullable=False)
+    target_type: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    target_id: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    details: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    ip_address: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 
 class ChurchSettings(Base):

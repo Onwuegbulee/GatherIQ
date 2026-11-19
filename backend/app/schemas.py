@@ -27,11 +27,12 @@ class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
-    church_id: uuid.UUID
+    church_id: uuid.UUID | None = None
     full_name: str
     email: str
     role: str
     is_active: bool
+    must_change_password: bool = False
     created_at: datetime
 
 
@@ -41,7 +42,67 @@ class ChurchOut(BaseModel):
     id: uuid.UUID
     name: str
     location: str
+    email: str = ""
+    phone: str = ""
+    is_active: bool = True
     created_at: datetime
+    updated_at: datetime | None = None
+    admin_name: str | None = None
+    admin_email: str | None = None
+    total_sessions: int = 0
+    total_attendance: int = 0
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(..., min_length=1)
+    new_password: str = Field(..., min_length=6, max_length=128)
+
+
+class SuperAdminRegisterChurchRequest(BaseModel):
+    church_name: str = Field(..., min_length=2, max_length=200)
+    church_email: EmailStr | str = Field(default="", max_length=320)
+    phone: str = Field(default="", max_length=64)
+    location: str = Field(default="", max_length=200)
+    admin_full_name: str = Field(..., min_length=2, max_length=200)
+    admin_email: EmailStr
+    initial_password: str = Field(..., min_length=6, max_length=128)
+
+
+class SuperAdminUpdateChurchRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=200)
+    location: str | None = Field(default=None, max_length=200)
+    email: str | None = Field(default=None, max_length=320)
+    phone: str | None = Field(default=None, max_length=64)
+    is_active: bool | None = None
+
+
+class SuperAdminResetPasswordRequest(BaseModel):
+    new_password: str = Field(..., min_length=6, max_length=128)
+
+
+class ActivityLogOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    user_id: uuid.UUID | None = None
+    user_email: str
+    church_id: uuid.UUID | None = None
+    action: str
+    target_type: str
+    target_id: str
+    details: str
+    ip_address: str
+    created_at: datetime
+
+
+class PlatformOverviewOut(BaseModel):
+    total_churches: int
+    active_churches: int
+    suspended_churches: int
+    total_administrators: int
+    total_sessions: int
+    total_attendance_recorded: int
+    recent_activity: list[ActivityLogOut]
 
 
 class TokenResponse(BaseModel):

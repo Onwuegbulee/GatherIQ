@@ -1,6 +1,9 @@
 import type { AppSettings, AttendanceRecord, ServiceCategory, SessionDraft, SessionResult, UserProfile } from "./types";
 
-export const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+export const API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  process.env.NEXT_PUBLIC_API_URL ||
+  "http://localhost:8000";
 export const WS_BASE = API_BASE.replace(/^http/, "ws");
 
 class ApiError extends Error {
@@ -123,6 +126,12 @@ export const api = {
       } finally {
         setApiToken(null);
       }
+    },
+    changePassword: async (currentPassword: string, newPassword: string) => {
+      return request<{ message: string }>("/api/auth/change-password", {
+        method: "POST",
+        body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+      });
     },
   },
 
@@ -255,5 +264,179 @@ export const api = {
 
   reports: {
     overview: async () => request<any>("/api/reports/overview"),
+  },
+
+  superadmin: {
+    overview: async (): Promise<any> => {
+      const res = await request<any>("/api/superadmin/overview");
+      return {
+        totalChurches: res.total_churches,
+        activeChurches: res.active_churches,
+        suspendedChurches: res.suspended_churches,
+        totalAdministrators: res.total_administrators,
+        totalSessions: res.total_sessions,
+        totalAttendanceRecorded: res.total_attendance_recorded,
+        recentActivity: (res.recent_activity || []).map((l: any) => ({
+          id: l.id,
+          userId: l.user_id,
+          userEmail: l.user_email,
+          churchId: l.church_id,
+          action: l.action,
+          targetType: l.target_type,
+          targetId: l.target_id,
+          details: l.details,
+          ipAddress: l.ip_address,
+          createdAt: l.created_at,
+        })),
+      };
+    },
+    listChurches: async (params: { q?: string; status?: string } = {}): Promise<any[]> => {
+      const qs = new URLSearchParams();
+      if (params.q) qs.set("q", params.q);
+      if (params.status) qs.set("status_filter", params.status);
+      const res = await request<any[]>(`/api/superadmin/churches?${qs.toString()}`);
+      return res.map((c) => ({
+        id: c.id,
+        name: c.name,
+        location: c.location,
+        email: c.email,
+        phone: c.phone,
+        isActive: c.is_active,
+        createdAt: c.created_at,
+        updatedAt: c.updated_at,
+        adminName: c.admin_name,
+        adminEmail: c.admin_email,
+        totalSessions: c.total_sessions || 0,
+        totalAttendance: c.total_attendance || 0,
+      }));
+    },
+    getChurch: async (churchId: string): Promise<any> => {
+      const c = await request<any>(`/api/superadmin/churches/${churchId}`);
+      return {
+        id: c.id,
+        name: c.name,
+        location: c.location,
+        email: c.email,
+        phone: c.phone,
+        isActive: c.is_active,
+        createdAt: c.created_at,
+        updatedAt: c.updated_at,
+        adminName: c.admin_name,
+        adminEmail: c.admin_email,
+        totalSessions: c.total_sessions || 0,
+        totalAttendance: c.total_attendance || 0,
+      };
+    },
+    registerChurch: async (payload: {
+      churchName: string;
+      churchEmail?: string;
+      phone?: string;
+      location?: string;
+      adminFullName: string;
+      adminEmail: string;
+      initialPassword: string;
+    }): Promise<any> => {
+      const res = await request<any>("/api/superadmin/churches", {
+        method: "POST",
+        body: JSON.stringify({
+          church_name: payload.churchName,
+          church_email: payload.churchEmail || "",
+          phone: payload.phone || "",
+          location: payload.location || "",
+          admin_full_name: payload.adminFullName,
+          admin_email: payload.adminEmail,
+          initial_password: payload.initialPassword,
+        }),
+      });
+      return {
+        id: res.id,
+        name: res.name,
+        location: res.location,
+        email: res.email,
+        phone: res.phone,
+        isActive: res.is_active,
+        createdAt: res.created_at,
+        updatedAt: res.updated_at,
+        adminName: res.admin_name,
+        adminEmail: res.admin_email,
+        totalSessions: res.total_sessions || 0,
+        totalAttendance: res.total_attendance || 0,
+      };
+    },
+    updateChurch: async (churchId: string, payload: {
+      name?: string;
+      location?: string;
+      email?: string;
+      phone?: string;
+      isActive?: boolean;
+    }): Promise<any> => {
+      const body: any = {};
+      if (payload.name !== undefined) body.name = payload.name;
+      if (payload.location !== undefined) body.location = payload.location;
+      if (payload.email !== undefined) body.email = payload.email;
+      if (payload.phone !== undefined) body.phone = payload.phone;
+      if (payload.isActive !== undefined) body.is_active = payload.isActive;
+
+      const res = await request<any>(`/api/superadmin/churches/${churchId}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      });
+      return {
+        id: res.id,
+        name: res.name,
+        location: res.location,
+        email: res.email,
+        phone: res.phone,
+        isActive: res.is_active,
+        createdAt: res.created_at,
+        updatedAt: res.updated_at,
+      };
+    },
+    toggleStatus: async (churchId: string): Promise<any> => {
+      const res = await request<any>(`/api/superadmin/churches/${churchId}/toggle-status`, {
+        method: "POST",
+      });
+      return {
+        id: res.id,
+        isActive: res.is_active,
+      };
+    },
+    listAdministrators: async (): Promise<any[]> => {
+      const res = await request<any[]>("/api/superadmin/administrators");
+      return res.map((u) => ({
+        id: u.id,
+        churchId: u.church_id,
+        fullName: u.full_name,
+        email: u.email,
+        role: u.role,
+        isActive: u.is_active,
+        mustChangePassword: u.must_change_password,
+        createdAt: u.created_at,
+      }));
+    },
+    resetPassword: async (userId: string, newPassword: string): Promise<any> => {
+      return request<any>(`/api/superadmin/administrators/${userId}/reset-password`, {
+        method: "POST",
+        body: JSON.stringify({ new_password: newPassword }),
+      });
+    },
+    activityLogs: async (limit: number = 50): Promise<any[]> => {
+      const res = await request<any[]>(`/api/superadmin/activity-logs?limit=${limit}`);
+      return res.map((l) => ({
+        id: l.id,
+        userId: l.user_id,
+        userEmail: l.user_email,
+        churchId: l.church_id,
+        action: l.action,
+        targetType: l.target_type,
+        targetId: l.target_id,
+        details: l.details,
+        ipAddress: l.ip_address,
+        createdAt: l.created_at,
+      }));
+    },
+    getChurchAttendanceStats: async (churchId: string): Promise<any> => {
+      return request<any>(`/api/superadmin/churches/${churchId}/attendance-stats`);
+    },
   },
 };
