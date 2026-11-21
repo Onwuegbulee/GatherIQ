@@ -30,14 +30,21 @@ def _set_refresh_cookie(response: Response, raw_token: str, remember: bool) -> N
         value=raw_token,
         max_age=max_age,
         httponly=True,
-        secure=settings.cookie_secure,
-        samesite=settings.cookie_samesite,  # type: ignore
+        secure=settings.effective_cookie_secure,
+        samesite=settings.effective_cookie_samesite,  # type: ignore
         path="/",
     )
 
 
 def _clear_refresh_cookie(response: Response) -> None:
-    response.delete_cookie(key=COOKIE_NAME, path="/")
+    settings = get_settings()
+    response.delete_cookie(
+        key=COOKIE_NAME,
+        path="/",
+        httponly=True,
+        secure=settings.effective_cookie_secure,
+        samesite=settings.effective_cookie_samesite,  # type: ignore
+    )
 
 
 @router.post("/setup", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)

@@ -91,40 +91,69 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setBackendOnline(isOnline);
 
       const activeToken = getApiToken();
-      if (activeToken && isOnline) {
-        try {
-          const profile = await api.auth.me();
-          setUser(profile);
-          setAuthed(true);
-          // Fetch real services, settings, and sessions
-          const [realServices, realSettings, realSessions] = await Promise.all([
-            api.services.list().catch(() => null),
-            api.settings.get().catch(() => null),
-            api.sessions.list().catch(() => null),
-          ]);
-          if (realServices) {
-            setServices(realServices);
-            write(localStorage, K.services, realServices);
+      if (isOnline) {
+        if (activeToken) {
+          try {
+            const profile = await api.auth.me();
+            setUser(profile);
+            setAuthed(true);
+            // Fetch real services, settings, and sessions
+            const [realServices, realSettings, realSessions] = await Promise.all([
+              api.services.list().catch(() => null),
+              api.settings.get().catch(() => null),
+              api.sessions.list().catch(() => null),
+            ]);
+            if (realServices) {
+              setServices(realServices);
+              write(localStorage, K.services, realServices);
+            }
+            if (realSettings) {
+              setSettings((prev) => ({ ...prev, ...realSettings }));
+              write(localStorage, K.settings, realSettings);
+            }
+            if (realSessions && realSessions.length > 0) {
+              setSaved(realSessions);
+              write(localStorage, K.saved, realSessions);
+            }
+          } catch {
+            // Token might be expired, try refresh
+            try {
+              const refreshed = await api.auth.refresh();
+              setUser(refreshed.user);
+              setAuthed(true);
+            } catch {
+              // Token invalid or refresh expired: clear credentials
+              setApiToken(null);
+              write(localStorage, K.auth, null);
+              write(sessionStorage, K.auth, null);
+              setUser(null);
+              setAuthed(false);
+            }
           }
-          if (realSettings) {
-            setSettings((prev) => ({ ...prev, ...realSettings }));
-            write(localStorage, K.settings, realSettings);
-          }
-          if (realSessions && realSessions.length > 0) {
-            setSaved(realSessions);
-            write(localStorage, K.saved, realSessions);
-          }
-        } catch {
-          // Token might be expired, try refresh
+        } else {
+          // No access token in storage: attempt session restoration via HttpOnly refresh cookie
           try {
             const refreshed = await api.auth.refresh();
             setUser(refreshed.user);
             setAuthed(true);
+            const [realServices, realSettings, realSessions] = await Promise.all([
+              api.services.list().catch(() => null),
+              api.settings.get().catch(() => null),
+              api.sessions.list().catch(() => null),
+            ]);
+            if (realServices) {
+              setServices(realServices);
+              write(localStorage, K.services, realServices);
+            }
+            if (realSettings) {
+              setSettings((prev) => ({ ...prev, ...realSettings }));
+              write(localStorage, K.settings, realSettings);
+            }
+            if (realSessions && realSessions.length > 0) {
+              setSaved(realSessions);
+              write(localStorage, K.saved, realSessions);
+            }
           } catch {
-            // Token invalid or refresh expired: clear credentials
-            setApiToken(null);
-            write(localStorage, K.auth, null);
-            write(sessionStorage, K.auth, null);
             setUser(null);
             setAuthed(false);
           }

@@ -1,10 +1,17 @@
 import type { AppSettings, AttendanceRecord, ServiceCategory, SessionDraft, SessionResult, UserProfile } from "./types";
 
-export const API_BASE =
+const rawApiBase =
   process.env.NEXT_PUBLIC_API_BASE_URL ||
   process.env.NEXT_PUBLIC_API_URL ||
   "http://localhost:8000";
-export const WS_BASE = API_BASE.replace(/^http/, "ws");
+
+export const API_BASE = rawApiBase.replace(/\/+$/, "");
+
+export const WS_BASE = (
+  process.env.NEXT_PUBLIC_WS_BASE_URL ||
+  process.env.NEXT_PUBLIC_WS_URL ||
+  API_BASE.replace(/^http/, "ws")
+).replace(/\/+$/, "");
 
 class ApiError extends Error {
   status: number;

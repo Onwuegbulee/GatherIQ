@@ -25,7 +25,10 @@ async def lifespan(app: FastAPI):
     try:
         with SessionLocal() as db:
             super_admin = ensure_initial_super_admin(db)
-            logger.info("Initial Super Admin verified/provisioned: %s", super_admin.email)
+            if super_admin:
+                logger.info("Initial Super Admin verified/provisioned: %s", super_admin.email)
+            else:
+                logger.info("Super Admin auto-provisioning skipped (SUPER_ADMIN_PASSWORD not set in environment).")
     except Exception as exc:
         logger.warning("Could not auto-provision Super Admin on startup: %s", exc)
     logger.info("GatherIQ backend started successfully.")
@@ -80,3 +83,13 @@ def health_check():
         "app": "GatherIQ",
         "version": "1.0.0",
     }
+
+
+if __name__ == "__main__":
+    import os
+    import uvicorn
+
+    port = int(os.environ.get("PORT", 8000))
+    host = os.environ.get("HOST", "0.0.0.0")
+    logger.info("Starting GatherIQ backend server on %s:%d", host, port)
+    uvicorn.run("app.main:app", host=host, port=port)

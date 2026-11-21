@@ -2,3 +2,16 @@ node_modules
 .next
 next-env.d.ts
 *.tsbuildinfo
+
+# Python & Environment
+__pycache__/
+*.py[cod]
+*$py.class
+*.db
+*.sqlite
+*.sqlite3
+.venv/
+venv/
+.env
+.pytest_cache/
+

@@ -1,0 +1,47 @@
+# Render Blueprint Specification for GatherIQ
+# Learn more: https://render.com/docs/blueprint-spec
+
+version: "1"
+
+databases:
+  - name: gatheriq-db
+    databaseName: gatheriq
+    user: gatheriq_user
+    plan: starter
+    region: oregon
+
+services:
+  - type: web
+    name: gatheriq-backend
+    runtime: python
+    plan: starter
+    region: oregon
+    rootDir: backend
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    startCommand: alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: ENVIRONMENT
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: gatheriq-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CORS_ORIGINS
+        sync: false
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: COOKIE_SAMESITE
+        value: none
+      - key: ALLOW_DEMO_COUNTS
+        value: "false"
+      - key: SUPER_ADMIN_EMAIL
+        value: superadmin@gatheriq.dev
+      - key: SUPER_ADMIN_PASSWORD
+        sync: false
+      - key: SUPER_ADMIN_NAME
+        value: Platform Super Admin
