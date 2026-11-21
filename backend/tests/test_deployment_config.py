@@ -35,6 +35,16 @@ def test_postgres_url_normalization():
     s3 = Settings(database_url="postgresql+asyncpg://user:pass@render-db.host:5432/gatheriq")
     assert s3.sync_database_url == "postgresql+psycopg://user:pass@render-db.host:5432/gatheriq"
 
+    # Neon Free PostgreSQL direct connection with sslmode=require
+    neon_direct = "postgresql://gatheriq_owner:secret@ep-divine-pond-123456.us-east-2.aws.neon.tech/gatheriq?sslmode=require"
+    s_neon1 = Settings(database_url=neon_direct)
+    assert s_neon1.sync_database_url == "postgresql+psycopg://gatheriq_owner:secret@ep-divine-pond-123456.us-east-2.aws.neon.tech/gatheriq?sslmode=require"
+
+    # Neon Free PostgreSQL pooled connection (-pooler) with postgres:// scheme
+    neon_pooled = "postgres://gatheriq_owner:secret@ep-divine-pond-123456-pooler.us-east-2.aws.neon.tech/gatheriq?sslmode=require"
+    s_neon2 = Settings(database_url=neon_pooled)
+    assert s_neon2.sync_database_url == "postgresql+psycopg://gatheriq_owner:secret@ep-divine-pond-123456-pooler.us-east-2.aws.neon.tech/gatheriq?sslmode=require"
+
 
 def test_sqlite_rejection_in_production():
     # ENVIRONMENT=production

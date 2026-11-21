@@ -13,5 +13,7 @@ __pycache__/
 .venv/
 venv/
 .env
+.env.local
+.env.*.local
 .pytest_cache/
 
