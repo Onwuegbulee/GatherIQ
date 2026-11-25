@@ -3,7 +3,6 @@ import { useMemo, useState } from "react";
 import { CalendarDays, Download, TrendingUp, Users, UsersRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-
 import { Input } from "@/components/ui/form";
 import { PageHeader } from "@/components/page-header";
 import { COLORS, GenderBars, GenderDonut, GroupedBars, TrackBars, TrendArea } from "@/components/charts/charts";
@@ -73,10 +72,10 @@ export default function ReportsPage() {
           <StatCard icon={TrendingUp} label="Sunday growth" value={g} decimals={1} prefix={g >= 0 ? "+" : ""} suffix="%" hint="Latest vs previous Sunday" spark={sundaySeries(data)} />
         </div>
         <div className="mt-6 grid gap-4 xl:grid-cols-12">
-          <Card className="xl:col-span-12"><CardHeader className="flex-row justify-between"><div><CardTitle>Attendance trend</CardTitle><CardDescription>Every session in the selected period, oldest to newest</CardDescription></div><SampleBadge /></CardHeader><CardContent><TrendArea data={trend} /></CardContent></Card>
-          <Card className="xl:col-span-6"><CardHeader className="flex-row justify-between"><div><CardTitle>Weekly attendance</CardTitle><CardDescription>Total counted per week</CardDescription></div><SampleBadge /></CardHeader><CardContent><TrackBars data={weekly} unit="Total" /></CardContent></Card>
-          <Card className="xl:col-span-6"><CardHeader className="flex-row justify-between"><div><CardTitle>Service comparison</CardTitle><CardDescription>Average attendance per session type</CardDescription></div><SampleBadge /></CardHeader><CardContent><TrackBars data={averageByType(data).map((a) => ({ name: a.name, value: a.average }))} height={260} /></CardContent></Card>
-          <Card className="xl:col-span-12"><CardHeader className="flex-row justify-between"><div><CardTitle>Monthly attendance by service</CardTitle><CardDescription>Average per session each month</CardDescription></div><SampleBadge /></CardHeader>
+          <Card className="xl:col-span-12"><CardHeader className="flex-row justify-between"><div><CardTitle>Attendance trend</CardTitle><CardDescription>Every session in the selected period, oldest to newest</CardDescription></div></CardHeader><CardContent><TrendArea data={trend} /></CardContent></Card>
+          <Card className="xl:col-span-6"><CardHeader className="flex-row justify-between"><div><CardTitle>Weekly attendance</CardTitle><CardDescription>Total counted per week</CardDescription></div></CardHeader><CardContent><TrackBars data={weekly} unit="Total" /></CardContent></Card>
+          <Card className="xl:col-span-6"><CardHeader className="flex-row justify-between"><div><CardTitle>Service comparison</CardTitle><CardDescription>Average attendance per session type</CardDescription></div></CardHeader><CardContent><TrackBars data={averageByType(data).map((a) => ({ name: a.name, value: a.average }))} height={260} /></CardContent></Card>
+          <Card className="xl:col-span-12"><CardHeader className="flex-row justify-between"><div><CardTitle>Monthly attendance by service</CardTitle><CardDescription>Average per session each month</CardDescription></div></CardHeader>
             <CardContent><GroupedBars data={monthly} keys={[{ key: "Sunday", name: "Sunday Service", color: "#16A34A" }, { key: "Wednesday", name: "Wednesday Service", color: "#86EFAC" }, { key: "Special", name: "Special Programmes", color: "#0F172A" }]} /></CardContent></Card>
         </div>
       </>)}
