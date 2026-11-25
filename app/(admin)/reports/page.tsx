@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { CalendarDays, Download, TrendingUp, Users, UsersRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { SampleBadge } from "@/components/ui/badge";
+
 import { Input } from "@/components/ui/form";
 import { PageHeader } from "@/components/page-header";
 import { COLORS, GenderBars, GenderDonut, GroupedBars, TrackBars, TrendArea } from "@/components/charts/charts";

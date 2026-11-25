@@ -1,7 +1,7 @@
 "use client";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { AppSettings, AttendanceRecord, ServiceCategory, SessionDraft, SessionResult, UserProfile } from "@/lib/types";
-import { DEFAULT_SERVICES, DEFAULT_SETTINGS, MOCK_RECORDS } from "@/lib/mock-data";
+import { DEFAULT_SERVICES, DEFAULT_SETTINGS } from "@/lib/mock-data";
 import { api, getApiToken, setApiToken } from "@/lib/api";
 
 const K = {
@@ -362,7 +362,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   const records = useMemo(() => {
-    const list = saved.length > 0 ? saved : MOCK_RECORDS;
+    const list = saved.length > 0 ? saved : [];
     return list
       .map((r) => (confirmed.includes(r.id) ? { ...r, status: "Confirmed" as const } : r))
       .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));

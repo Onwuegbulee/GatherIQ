@@ -4,7 +4,7 @@ import Link from "next/link";
 import { CalendarCheck, Crown, Info, Lightbulb, Plus, TrendingUp, Users, UsersRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge, SampleBadge } from "@/components/ui/badge";
+import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/page-header";
 import { StatCard } from "@/components/dashboard/stat-card";
 import { COLORS, Gauge, GenderBars, GenderDonut, TrackBars, TrendArea, WeekdayRadar } from "@/components/charts/charts";
@@ -87,14 +87,14 @@ export default function DashboardPage() {
               <div className="flex rounded-xl bg-slate-100 p-1" role="group" aria-label="Range">
                 {[8, 16, 99].map((n) => <button key={n} onClick={() => setRange(n)} aria-pressed={range === n} className={cn("h-7 rounded-lg px-3 text-xs font-medium", range === n ? "bg-white shadow-sm" : "text-muted")}>{n === 99 ? "All" : `Last ${n}`}</button>)}
               </div>
-              <SampleBadge />
+  
             </div>
           </CardHeader>
           <CardContent><TrendArea data={trend} /></CardContent>
         </Card>
 
         <Card className="xl:col-span-4">
-          <CardHeader className="flex-row items-start justify-between"><div><CardTitle>Attendance by service</CardTitle><CardDescription>Share of all recorded attendees</CardDescription></div><SampleBadge /></CardHeader>
+          <CardHeader className="flex-row items-start justify-between"><div><CardTitle>Attendance by service</CardTitle><CardDescription>Share of all recorded attendees</CardDescription></div></CardHeader>
           <CardContent>
             <div className="space-y-4 pt-2">
               {Array.from(new Set(records.map((r) => r.serviceType))).slice(0, 4).map((type) => {
@@ -128,13 +128,13 @@ export default function DashboardPage() {
         <Card className="xl:col-span-8">
           <CardHeader className="flex-row flex-wrap items-start justify-between gap-3">
             <div><CardTitle>Recent session attendance</CardTitle><CardDescription>Total people counted across your last 8 sessions</CardDescription></div>
-            <SampleBadge />
+
           </CardHeader>
           <CardContent><TrackBars data={last8.map((p) => ({ name: p.label, value: p.attendance }))} height={240} unit="Attendees" /></CardContent>
         </Card>
 
         <Card className="xl:col-span-4">
-          <CardHeader className="flex-row items-start justify-between"><div><CardTitle>Weekly pattern</CardTitle><CardDescription>Average attendance by weekday</CardDescription></div><SampleBadge /></CardHeader>
+          <CardHeader className="flex-row items-start justify-between"><div><CardTitle>Weekly pattern</CardTitle><CardDescription>Average attendance by weekday</CardDescription></div></CardHeader>
           <CardContent><WeekdayRadar data={weekdayAverages(records)} /></CardContent>
         </Card>
 
