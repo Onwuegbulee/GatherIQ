@@ -18,9 +18,7 @@ export interface AttendanceRecord {
   status: "Confirmed" | "Pending";
   createdBy: string;
   description?: string;
-  countSource?: "ai" | "demo" | "manual";
-  /** true for sample records, false for real sessions */
-  isSample: boolean;
+  countSource?: "ai" | "manual" | "demo";
   male?: number;
   female?: number;
 }
@@ -38,8 +36,8 @@ export interface SessionResult extends SessionDraft {
   count: number;
   durationSeconds: number;
   endedAt: string;
-  countSource: "ai" | "demo" | "manual";
-  isDemoCount: boolean;
+  countSource: "ai" | "manual";
+  aiMessage?: string;
   male?: number;
   female?: number;
 }

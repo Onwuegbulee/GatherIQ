@@ -6,12 +6,7 @@ import { formatDate, formatDuration } from "@/lib/utils";
 import type { AttendanceRecord } from "@/lib/types";
 
 export function RecordDetails({ record: r }: { record: AttendanceRecord }) {
-  const countSourceText =
-    r.countSource === "ai"
-      ? "AI Object Tracking"
-      : r.countSource === "demo" || r.isSample
-      ? "Demonstration Mode"
-      : "Manual Entry";
+  const countSourceText = r.countSource === "ai" ? "AI Object Tracking" : "Manual Entry";
 
   const rows: [string, string][] = [
     ["Service type", r.serviceType],
@@ -33,12 +28,10 @@ export function RecordDetails({ record: r }: { record: AttendanceRecord }) {
         </div>
         <div className="ml-auto flex flex-col items-end gap-1">
           <StatusBadge status={r.status} />
-          {r.isSample ? (
-            <Badge tone="amber">Sample data</Badge>
-          ) : r.countSource === "ai" ? (
+          {r.countSource === "ai" ? (
             <Badge tone="green">AI Verified</Badge>
           ) : (
-            <Badge tone="slate">Saved record</Badge>
+            <Badge tone="slate">Manual Entry</Badge>
           )}
         </div>
       </div>

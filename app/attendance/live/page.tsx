@@ -91,7 +91,7 @@ function Scanner() {
         countSource: session.countSource,
         durationSeconds: session.elapsed,
         endedAt: new Date().toISOString(),
-        isDemoCount: !session.isGenuineAI,
+        aiMessage: session.aiMessage,
       });
       router.replace("/attendance/summary");
     }, 1600);
@@ -129,6 +129,7 @@ function Scanner() {
               state={state}
               isGenuineAI={session.isGenuineAI}
               countSource={session.countSource}
+              aiMessage={session.aiMessage}
               onAdjust={session.adjustCount}
             />
           </div>
@@ -168,7 +169,7 @@ function Scanner() {
               <div className="max-w-sm text-center">
                 <span className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-brand/20"><Camera className="h-7 w-7 text-brand" /></span>
                 <h2 className="mt-4 text-xl font-semibold">Allow camera access</h2>
-                <p className="mt-2 text-sm text-white/70">ChurchCount AI uses your rear camera to count the congregation as you walk around. It doesn’t identify anyone, and video isn’t recorded or stored.</p>
+                <p className="mt-2 text-sm text-white/70">GatherIQ uses your rear camera to count the congregation as you walk around. It doesn’t identify anyone, and video isn’t recorded or stored.</p>
                 <p className="mt-3 flex items-center justify-center gap-1.5 text-xs text-white/50"><ShieldCheck className="h-3.5 w-3.5" />Counting happens on the video stream only.</p>
                 <div className="mt-6 flex flex-col gap-2">
                   <button onClick={() => cam.start()} className="h-12 rounded-lg bg-brand font-medium active:scale-[.98]">Enable camera</button>

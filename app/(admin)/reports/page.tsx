@@ -1,15 +1,15 @@
 "use client";
 import { useMemo, useState } from "react";
-import { CalendarDays, Download, TrendingUp, Users, UsersRound } from "lucide-react";
+import { AlertCircle, CalendarDays, Download, Plus, RefreshCw, TrendingUp, Users, UsersRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/form";
 import { PageHeader } from "@/components/page-header";
-import { COLORS, GenderBars, GenderDonut, GroupedBars, TrackBars, TrendArea } from "@/components/charts/charts";
+import { GroupedBars, TrackBars, TrendArea } from "@/components/charts/charts";
 import { StatCard } from "@/components/dashboard/stat-card";
 import { useUI } from "@/components/ui-provider";
 import { useApp } from "@/context/app-context";
-import { averageByType, avg, chronological, genderTotals, growth, sum, sundaySeries, trendPoints } from "@/lib/stats";
+import { averageByType, avg, chronological, growth, sum, sundaySeries, trendPoints } from "@/lib/stats";
 import { downloadCsv } from "@/lib/csv";
 import { cn, formatDate, formatMinutes } from "@/lib/utils";
 
@@ -18,7 +18,7 @@ const presets = [{ id: "4w", label: "4 weeks", days: 28 }, { id: "12w", label: "
 const iso = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
 export default function ReportsPage() {
-  const { records } = useApp();
+  const { records, dataLoading, dataError, refreshData } = useApp();
   const ui = useUI();
   const latest = records[0]?.date ?? iso(Date.now());
   const [preset, setPreset] = useState("12w");
@@ -44,13 +44,15 @@ export default function ReportsPage() {
     return Array.from(m, ([k, g]) => ({ label: formatDate(k + "-01", { month: "short", year: "2-digit" }), Sunday: mean(g["Sunday Service"]), Wednesday: mean(g["Wednesday Service"]), Special: mean(g["Special Programmes"]) }));
   }, [data]);
   const g = growth(data);
-  const gt = genderTotals(data);
   const trend = trendPoints(data, 16);
 
-  const exportCsv = () => { downloadCsv(`gatheriq-report-${latest}.csv`, [
-    ["Service", "Service type", "Date", "Total Attendance", "Duration", "Status", "Source"],
-    ...data.map((r) => [r.serviceName, r.serviceType, r.date, r.attendance, formatMinutes(r.durationSeconds), r.status, r.countSource || (r.isSample ? "Sample" : "Saved")]),
-  ]); ui.toast("Report downloaded"); };
+  const exportCsv = () => {
+    downloadCsv(`gatheriq-report-${latest}.csv`, [
+      ["Service", "Service type", "Date", "Total Attendance", "Duration", "Status", "Source"],
+      ...data.map((r) => [r.serviceName, r.serviceType, r.date, r.attendance, formatMinutes(r.durationSeconds), r.status, r.countSource === "ai" ? "AI Count" : "Manual"]),
+    ]);
+    ui.toast("Report downloaded");
+  };
 
   return (
     <>
@@ -62,8 +64,25 @@ export default function ReportsPage() {
         <div className="flex items-center gap-2"><Input type="date" aria-label="From date" value={from} onChange={(e) => setFrom(e.target.value)} className="w-40" /><span className="text-sm text-muted">to</span><Input type="date" aria-label="To date" value={to} onChange={(e) => setTo(e.target.value)} className="w-40" /></div>
       </Card>
 
-      {data.length === 0 ? (
-        <Card className="px-6 py-16 text-center"><p className="font-medium">No attendance in this period</p><p className="mt-1 text-sm text-muted">Pick a wider date range to see trends.</p></Card>
+      {dataError && (
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          <div className="flex items-center gap-2"><AlertCircle className="h-4 w-4 shrink-0" /><span>{dataError}</span></div>
+          <Button size="sm" variant="outline" onClick={() => refreshData()} disabled={dataLoading}><RefreshCw className={cn("h-3.5 w-3.5", dataLoading && "animate-spin")} />Retry</Button>
+        </div>
+      )}
+
+      {dataLoading && records.length === 0 ? (
+        <Card className="px-6 py-16 text-center text-sm text-muted">Loading attendance reports…</Card>
+      ) : data.length === 0 ? (
+        records.length === 0 ? (
+          <Card className="px-6 py-16 text-center">
+            <p className="font-medium">No reports available yet</p>
+            <p className="mt-1 text-sm text-muted">Start your first attendance session to begin recording attendance and generating reports.</p>
+            <Button className="mt-4" onClick={ui.openNewAttendance}><Plus className="h-4 w-4" />Start New Attendance</Button>
+          </Card>
+        ) : (
+          <Card className="px-6 py-16 text-center"><p className="font-medium">No attendance in this period</p><p className="mt-1 text-sm text-muted">Pick a wider date range to see trends.</p></Card>
+        )
       ) : (<>
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <StatCard variant="dark" icon={UsersRound} label="Average attendance" value={avg(data)} hint="Per session" spark={trend.map((p) => p.attendance)} />

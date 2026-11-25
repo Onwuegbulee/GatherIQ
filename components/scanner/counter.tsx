@@ -6,13 +6,14 @@ export function Counter({
   count,
   state,
   isGenuineAI = false,
-  countSource = "demo",
+  aiMessage,
   onAdjust,
 }: {
   count: number;
   state: string;
   isGenuineAI?: boolean;
   countSource?: string;
+  aiMessage?: string;
   onAdjust: (delta: number) => void;
 }) {
   const live = state === "recording";
@@ -37,9 +38,9 @@ export function Counter({
             AI DETECTING
           </span>
         ) : (
-          <span className="flex items-center gap-1 rounded bg-amber-400 px-2 py-0.5 text-slate-900 font-medium">
+          <span className="flex items-center gap-1 rounded bg-white/20 px-2 py-0.5 font-medium text-white">
             <Sliders className="h-3 w-3" />
-            DEMO MODE
+            MANUAL COUNT
           </span>
         )}
       </div>
@@ -55,7 +56,7 @@ export function Counter({
         TOTAL PEOPLE COUNTED
       </p>
 
-      {/* Manual / Demo Adjuster Controls */}
+      {/* Manual Adjuster Controls (when AI vision is not active) */}
       {live && !isGenuineAI && (
         <div className="mt-4 flex items-center justify-center gap-4 rounded-2xl bg-white/10 p-2.5">
           <button
@@ -77,8 +78,8 @@ export function Counter({
       )}
 
       {live && !isGenuineAI && (
-        <p className="mt-2.5 text-[11px] text-white/60">
-          Demo Mode: Tap + or − to adjust total attendance.
+        <p className="mt-2.5 text-[11px] text-white/70">
+          {aiMessage || "AI vision engine is not connected. Tap + or − to adjust count manually."}
         </p>
       )}
 

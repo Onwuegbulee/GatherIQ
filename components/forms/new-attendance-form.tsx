@@ -1,10 +1,11 @@
 "use client";
 import { useState } from "react";
-import { Camera, Lock, ScanLine } from "lucide-react";
+import { AlertCircle, Camera, Lock, ScanLine } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Textarea } from "@/components/ui/form";
 import { ServiceIcon } from "@/lib/service-meta";
 import { useApp } from "@/context/app-context";
+import { api } from "@/lib/api";
 import { cn, todayISO } from "@/lib/utils";
 
 export function NewAttendanceForm({ onStarted }: { onStarted: () => void }) {
@@ -14,9 +15,10 @@ export function NewAttendanceForm({ onStarted }: { onStarted: () => void }) {
   const [serviceName, setServiceName] = useState("");
   const [date, setDate] = useState(todayISO());
   const [description, setDescription] = useState("");
-  const [errors, setErrors] = useState<{ name?: string; date?: string }>({});
+  const [errors, setErrors] = useState<{ name?: string; date?: string; submit?: string }>({});
+  const [busy, setBusy] = useState(false);
 
-  const start = (e: React.FormEvent) => {
+  const start = async (e: React.FormEvent) => {
     e.preventDefault();
     const name = serviceName.trim() || (serviceType === "Other" ? "" : serviceType);
     const next: typeof errors = {};
@@ -24,9 +26,32 @@ export function NewAttendanceForm({ onStarted }: { onStarted: () => void }) {
     if (!date) next.date = "Choose the attendance date.";
     setErrors(next);
     if (Object.keys(next).length) return;
-    setResult(null);
-    setDraft({ serviceName: name, serviceType, date, description: description.trim() });
-    onStarted();
+
+    setBusy(true);
+    try {
+      const matchedService = services.find((s) => s.name === serviceType);
+      const created = await api.sessions.create({
+        serviceId: matchedService?.id,
+        serviceName: name,
+        serviceType,
+        date,
+        description: description.trim(),
+      });
+      setResult(null);
+      setDraft({
+        id: created.id,
+        serviceId: matchedService?.id,
+        serviceName: name,
+        serviceType,
+        date,
+        description: description.trim(),
+      });
+      onStarted();
+    } catch (err: any) {
+      setErrors({ submit: err?.message || "Could not create attendance session. Please try again." });
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -51,9 +76,15 @@ export function NewAttendanceForm({ onStarted }: { onStarted: () => void }) {
       <Field label="Description (optional)" htmlFor="desc"><Textarea id="desc" className="min-h-[72px]" placeholder="Anything worth noting about this service" value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
       <div className="flex gap-3 rounded-xl bg-brand-soft p-3.5 text-sm text-slate-700 ring-1 ring-green-200/70">
         <Camera className="mt-0.5 h-4 w-4 shrink-0 text-brand-dark" />
-        <p>Next, your browser will ask for camera access. The camera is only used to count the congregation. ChurchCount AI doesn’t identify people or store video.</p>
+        <p>Next, your browser will ask for camera access. The camera is only used to count the congregation. GatherIQ doesn’t identify people or store video.</p>
       </div>
-      <Button type="submit" size="lg" className="w-full tracking-wide"><ScanLine className="h-5 w-5" />START ATTENDANCE</Button>
+      {errors.submit && (
+        <div className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm text-red-700">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          <span>{errors.submit}</span>
+        </div>
+      )}
+      <Button type="submit" size="lg" className="w-full tracking-wide" disabled={busy}><ScanLine className="h-5 w-5" />{busy ? "CREATING SESSION…" : "START ATTENDANCE"}</Button>
       <p className="flex items-center justify-center gap-1.5 text-xs text-muted"><Lock className="h-3 w-3" />No member names or personal details are collected.</p>
     </form>
   );

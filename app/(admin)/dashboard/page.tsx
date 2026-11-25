@@ -1,22 +1,38 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { CalendarCheck, Crown, Info, Lightbulb, Plus, TrendingUp, Users, UsersRound } from "lucide-react";
+import { AlertCircle, BarChart3, CalendarCheck, Crown, Lightbulb, Plus, RefreshCw, TrendingUp, Users, UsersRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/page-header";
 import { StatCard } from "@/components/dashboard/stat-card";
-import { COLORS, Gauge, GenderBars, GenderDonut, TrackBars, TrendArea, WeekdayRadar } from "@/components/charts/charts";
+import { Gauge, TrackBars, TrendArea, WeekdayRadar } from "@/components/charts/charts";
 import { StatusBadge } from "@/components/status-badge";
 import { ServiceIcon } from "@/lib/service-meta";
 import { useUI } from "@/components/ui-provider";
 import { useApp } from "@/context/app-context";
-import { avg, chronological, genderTotals, growth, runningAverage, sessionsPerMonth, sundaySeries, topBy, trendPoints, weekdayAverages } from "@/lib/stats";
+import { avg, chronological, growth, runningAverage, sessionsPerMonth, sundaySeries, topBy, trendPoints, weekdayAverages } from "@/lib/stats";
 import { cn, formatDate, formatMinutes, todayISO } from "@/lib/utils";
 
+function EmptyChart({ message, actionLabel, onAction }: { message: string; actionLabel?: string; onAction?: () => void }) {
+  return (
+    <div className="flex h-[220px] flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-6 text-center">
+      <BarChart3 className="h-8 w-8 text-slate-300" />
+      <p className="mt-2.5 text-sm font-medium text-slate-700">{message}</p>
+      <p className="mt-1 text-xs text-muted">Attendance data will appear here after your church records its first session.</p>
+      {actionLabel && onAction && (
+        <Button size="sm" variant="outline" className="mt-4" onClick={onAction}>
+          <Plus className="h-3.5 w-3.5" />
+          {actionLabel}
+        </Button>
+      )}
+    </div>
+  );
+}
+
 export default function DashboardPage() {
-  const { records, settings } = useApp();
+  const { records, settings, dataLoading, dataError, refreshData } = useApp();
   const ui = useUI();
   const [greeting, setGreeting] = useState("Good morning");
   const [today, setToday] = useState("");
@@ -33,9 +49,6 @@ export default function DashboardPage() {
   const todays = records.filter((r) => r.date === todayISO());
   const latest = todays[0] ?? records[0];
   const g = growth(records);
-  const gt = genderTotals(records);
-  const gTotal = gt.male + gt.female || 1;
-  const womenPct = (gt.female / gTotal) * 100;
   const trend = useMemo(() => trendPoints(records, range), [records, range]);
   const spark = useMemo(() => trendPoints(records, 12).map((p) => p.attendance), [records]);
   const latestSunday = chronological(records.filter((r) => r.serviceType === "Sunday Service")).pop();
@@ -45,16 +58,24 @@ export default function DashboardPage() {
   const top = topBy(records, 5);
   const recent = records.filter((r) => tab === "All" || r.status === tab).slice(0, 6);
   const last8 = trendPoints(records, 8);
+  const hasRecords = records.length > 0;
 
   const insights = useMemo(() => {
+    if (records.length === 0) {
+      return [
+        "No attendance sessions yet. Start your first attendance session to begin recording attendance.",
+        "Insights and growth comparisons will appear automatically once your church records services.",
+      ];
+    }
     const list = [
       `Sunday attendance is ${g >= 0 ? "up" : "down"} ${Math.abs(g).toFixed(1)}% compared with the previous Sunday.`,
-      `You have recorded ${records.length} total attendance sessions across all service types.`,
+      `You have recorded ${records.length} total attendance session${records.length === 1 ? "" : "s"} across all service types.`,
       top[0] ? `Your busiest service was ${top[0].serviceName} on ${formatDate(top[0].date)} with ${top[0].attendance.toLocaleString()} people.` : "Record a service to see highlights here.",
     ];
     if (pending) list.push(`${pending} session${pending > 1 ? "s are" : " is"} waiting for your confirmation.`);
     return list;
   }, [g, top, pending, records.length]);
+
   useEffect(() => {
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     const id = setInterval(() => setInsight((i) => (i + 1) % insights.length), 6000);
@@ -63,57 +84,115 @@ export default function DashboardPage() {
 
   return (
     <>
-      <PageHeader title={`${greeting}, ${settings.adminName}.`} description={`Here's an overview of your church attendance.${today ? ` ${today}.` : ""}`}
-        actions={<Button onClick={ui.openNewAttendance}><Plus className="h-4 w-4" />New Attendance</Button>} />
+      <PageHeader
+        title={`${greeting}${settings.adminName ? `, ${settings.adminName}` : ""}.`}
+        description={`Here's an overview of your church attendance.${today ? ` ${today}.` : ""}`}
+        actions={<Button onClick={ui.openNewAttendance}><Plus className="h-4 w-4" />New Attendance</Button>}
+      />
 
-      <div className="mb-6 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50/80 px-3.5 py-2.5 text-sm text-amber-800">
-        <Info className="mt-0.5 h-4 w-4 shrink-0" />
-        <p>Most records here are <strong>sample data</strong> for demonstration. Sessions you save from the scanner appear alongside them and are marked “Saved here”.</p>
-      </div>
+      {dataError && (
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            <span>{dataError}</span>
+          </div>
+          <Button size="sm" variant="outline" onClick={() => refreshData()} disabled={dataLoading}>
+            <RefreshCw className={cn("h-3.5 w-3.5", dataLoading && "animate-spin")} />
+            Retry
+          </Button>
+        </div>
+      )}
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard variant="dark" icon={Users} label={todays.length ? "Today's Attendance" : "Latest Attendance"} value={todays.length ? todays.reduce((a, r) => a + r.attendance, 0) : latest?.attendance ?? 0}
-          hint={latest ? `${latest.serviceName} · ${formatDate(latest.date, { day: "numeric", month: "short" })}` : "No sessions yet"} spark={spark} delta={g} onDetails={() => latest && ui.openRecord(latest.id)} />
-        <StatCard variant="mint" icon={UsersRound} label="Average Attendance" value={avg(records)} hint="Across all recorded sessions" spark={runningAverage(chronological(records).slice(-12).map((r) => r.attendance))} />
-        <StatCard icon={CalendarCheck} label="Total Sessions" value={records.length} hint="Sample and saved records" bars={sessionsPerMonth(records)} />
-        <StatCard icon={TrendingUp} label="Attendance Growth" value={g} decimals={1} prefix={g >= 0 ? "+" : ""} suffix="%" hint="Latest Sunday vs the one before" spark={sundaySeries(records)} />
-      </div>
+      {dataLoading && !hasRecords ? (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="h-36 animate-pulse rounded-2xl border border-slate-200/70 bg-white p-5 shadow-card" />
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <StatCard
+            variant="dark"
+            icon={Users}
+            label={todays.length ? "Today's Attendance" : "Latest Attendance"}
+            value={todays.length ? todays.reduce((a, r) => a + r.attendance, 0) : latest?.attendance ?? 0}
+            hint={latest ? `${latest.serviceName} · ${formatDate(latest.date, { day: "numeric", month: "short" })}` : "No sessions yet"}
+            spark={spark}
+            delta={hasRecords ? g : undefined}
+            onDetails={() => latest && ui.openRecord(latest.id)}
+          />
+          <StatCard
+            variant="mint"
+            icon={UsersRound}
+            label="Average Attendance"
+            value={avg(records)}
+            hint={hasRecords ? "Across all recorded sessions" : "No sessions yet"}
+            spark={runningAverage(chronological(records).slice(-12).map((r) => r.attendance))}
+          />
+          <StatCard
+            icon={CalendarCheck}
+            label="Total Sessions"
+            value={records.length}
+            hint={hasRecords ? "Recorded attendance sessions" : "No sessions yet"}
+            bars={sessionsPerMonth(records)}
+          />
+          <StatCard
+            icon={TrendingUp}
+            label="Attendance Growth"
+            value={g}
+            decimals={1}
+            prefix={g >= 0 ? "+" : ""}
+            suffix="%"
+            hint={hasRecords ? "Latest Sunday vs the one before" : "Needs 2+ Sunday services"}
+            spark={sundaySeries(records)}
+          />
+        </div>
+      )}
 
       <div className="mt-6 grid gap-4 xl:grid-cols-12">
         <Card className="xl:col-span-8">
           <CardHeader className="flex-row flex-wrap items-start justify-between gap-3">
-            <div><CardTitle>Attendance overview</CardTitle><CardDescription>Hover a point to see the men and women split</CardDescription></div>
+            <div><CardTitle>Attendance overview</CardTitle><CardDescription>Attendance counted across your recent sessions</CardDescription></div>
             <div className="flex items-center gap-2">
               <div className="flex rounded-xl bg-slate-100 p-1" role="group" aria-label="Range">
                 {[8, 16, 99].map((n) => <button key={n} onClick={() => setRange(n)} aria-pressed={range === n} className={cn("h-7 rounded-lg px-3 text-xs font-medium", range === n ? "bg-white shadow-sm" : "text-muted")}>{n === 99 ? "All" : `Last ${n}`}</button>)}
               </div>
-  
             </div>
           </CardHeader>
-          <CardContent><TrendArea data={trend} /></CardContent>
+          <CardContent>
+            {trend.length === 0 ? (
+              <EmptyChart message="No attendance trends to display" actionLabel="Start New Attendance" onAction={ui.openNewAttendance} />
+            ) : (
+              <TrendArea data={trend} />
+            )}
+          </CardContent>
         </Card>
 
         <Card className="xl:col-span-4">
           <CardHeader className="flex-row items-start justify-between"><div><CardTitle>Attendance by service</CardTitle><CardDescription>Share of all recorded attendees</CardDescription></div></CardHeader>
           <CardContent>
-            <div className="space-y-4 pt-2">
-              {Array.from(new Set(records.map((r) => r.serviceType))).slice(0, 4).map((type) => {
-                const typeTotal = records.filter((r) => r.serviceType === type).reduce((a, b) => a + b.attendance, 0);
-                const allTotal = records.reduce((a, b) => a + b.attendance, 0) || 1;
-                const pct = ((typeTotal / allTotal) * 100).toFixed(1);
-                return (
-                  <div key={type}>
-                    <div className="mb-1.5 flex items-center justify-between text-sm">
-                      <span className="font-medium text-slate-800">{type}</span>
-                      <span><b className="tabular-nums">{typeTotal.toLocaleString()}</b> <span className="text-muted">· {pct}%</span></span>
+            {!hasRecords ? (
+              <EmptyChart message="No service breakdown yet" />
+            ) : (
+              <div className="space-y-4 pt-2">
+                {Array.from(new Set(records.map((r) => r.serviceType))).slice(0, 4).map((type) => {
+                  const typeTotal = records.filter((r) => r.serviceType === type).reduce((a, b) => a + b.attendance, 0);
+                  const allTotal = records.reduce((a, b) => a + b.attendance, 0) || 1;
+                  const pct = ((typeTotal / allTotal) * 100).toFixed(1);
+                  return (
+                    <div key={type}>
+                      <div className="mb-1.5 flex items-center justify-between text-sm">
+                        <span className="font-medium text-slate-800">{type}</span>
+                        <span><b className="tabular-nums">{typeTotal.toLocaleString()}</b> <span className="text-muted">· {pct}%</span></span>
+                      </div>
+                      <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                        <div className="h-full rounded-full bg-brand transition-[width] duration-700" style={{ width: `${pct}%` }} />
+                      </div>
                     </div>
-                    <div className="h-2 overflow-hidden rounded-full bg-slate-100">
-                      <div className="h-full rounded-full bg-brand transition-[width] duration-700" style={{ width: `${pct}%` }} />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -128,28 +207,44 @@ export default function DashboardPage() {
         <Card className="xl:col-span-8">
           <CardHeader className="flex-row flex-wrap items-start justify-between gap-3">
             <div><CardTitle>Recent session attendance</CardTitle><CardDescription>Total people counted across your last 8 sessions</CardDescription></div>
-
           </CardHeader>
-          <CardContent><TrackBars data={last8.map((p) => ({ name: p.label, value: p.attendance }))} height={240} unit="Attendees" /></CardContent>
+          <CardContent>
+            {last8.length === 0 ? (
+              <EmptyChart message="No recorded sessions yet" actionLabel="Start New Attendance" onAction={ui.openNewAttendance} />
+            ) : (
+              <TrackBars data={last8.map((p) => ({ name: p.label, value: p.attendance }))} height={240} unit="Attendees" />
+            )}
+          </CardContent>
         </Card>
 
         <Card className="xl:col-span-4">
           <CardHeader className="flex-row items-start justify-between"><div><CardTitle>Weekly pattern</CardTitle><CardDescription>Average attendance by weekday</CardDescription></div></CardHeader>
-          <CardContent><WeekdayRadar data={weekdayAverages(records)} /></CardContent>
+          <CardContent>
+            {!hasRecords ? (
+              <EmptyChart message="No weekly pattern yet" />
+            ) : (
+              <WeekdayRadar data={weekdayAverages(records)} />
+            )}
+          </CardContent>
         </Card>
 
         <Card className="xl:col-span-4">
           <CardHeader><CardTitle className="flex items-center gap-2"><Crown className="h-4 w-4 text-amber-500" />Peak services</CardTitle><CardDescription>Your five highest attendances</CardDescription></CardHeader>
           <CardContent className="space-y-1">
-            {top.map((r, i) => (
-              <button key={r.id} onClick={() => ui.openRecord(r.id)} className="block w-full rounded-xl p-2.5 text-left hover:bg-slate-50">
-                <div className="flex items-center gap-3">
-                  <span className="grid h-6 w-6 place-items-center rounded-full bg-slate-100 text-xs font-semibold">{i + 1}</span>
-                  <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{r.serviceName}</span><span className="block text-xs text-muted">{formatDate(r.date)}</span></span>
-                  <span className="text-sm font-semibold tabular-nums">{r.attendance.toLocaleString()}</span>
-                </div>
-                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-brand transition-[width] duration-700" style={{ width: `${(r.attendance / top[0].attendance) * 100}%` }} /></div>
-              </button>))}
+            {top.length === 0 ? (
+              <EmptyChart message="No peak services yet" />
+            ) : (
+              top.map((r, i) => (
+                <button key={r.id} onClick={() => ui.openRecord(r.id)} className="block w-full rounded-xl p-2.5 text-left hover:bg-slate-50">
+                  <div className="flex items-center gap-3">
+                    <span className="grid h-6 w-6 place-items-center rounded-full bg-slate-100 text-xs font-semibold">{i + 1}</span>
+                    <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{r.serviceName}</span><span className="block text-xs text-muted">{formatDate(r.date)}</span></span>
+                    <span className="text-sm font-semibold tabular-nums">{r.attendance.toLocaleString()}</span>
+                  </div>
+                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-brand transition-[width] duration-700" style={{ width: `${(r.attendance / (top[0].attendance || 1)) * 100}%` }} /></div>
+                </button>
+              ))
+            )}
           </CardContent>
         </Card>
 
@@ -187,16 +282,31 @@ export default function DashboardPage() {
             <table className="w-full min-w-[680px] text-sm">
               <thead><tr className="text-left text-xs text-muted">{["Service", "Date", "Attendance", "Method", "Duration", "Status"].map((h) => <th key={h} className="bg-slate-50 px-5 py-2.5 font-medium first:rounded-l-xl last:rounded-r-xl">{h}</th>)}</tr></thead>
               <tbody>
-                {recent.length === 0 && <tr><td colSpan={6} className="px-5 py-10 text-center text-muted">No {tab.toLowerCase()} sessions.</td></tr>}
+                {recent.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-5 py-10 text-center text-muted">
+                      {hasRecords ? `No ${tab.toLowerCase()} sessions.` : "No attendance sessions yet. Start your first attendance session to begin recording attendance."}
+                    </td>
+                  </tr>
+                )}
                 {recent.map((r) => (
                   <tr key={r.id} onClick={() => ui.openRecord(r.id)} className="cursor-pointer border-b border-line/60 last:border-0 hover:bg-slate-50">
-                    <td className="px-5 py-3"><div className="flex items-center gap-3"><ServiceIcon type={r.serviceType} /><div><p className="font-medium">{r.serviceName}</p>{!r.isSample && <Badge tone="green">Saved here</Badge>}</div></div></td>
+                    <td className="px-5 py-3">
+                      <div className="flex items-center gap-3">
+                        <ServiceIcon type={r.serviceType} />
+                        <div>
+                          <p className="font-medium">{r.serviceName}</p>
+                          <Badge tone={r.countSource === "ai" ? "green" : "slate"}>{r.countSource === "ai" ? "AI Verified" : "Saved"}</Badge>
+                        </div>
+                      </div>
+                    </td>
                     <td className="px-5 py-3 text-muted">{formatDate(r.date)}</td>
                     <td className="px-5 py-3 font-semibold tabular-nums">{r.attendance.toLocaleString()}</td>
-                    <td className="px-5 py-3 text-xs text-muted font-medium">{r.countSource === "ai" ? "AI Count" : r.isSample ? "Sample" : "Manual"}</td>
+                    <td className="px-5 py-3 text-xs font-medium text-muted">{r.countSource === "ai" ? "AI Count" : "Manual"}</td>
                     <td className="px-5 py-3 text-muted">{formatMinutes(r.durationSeconds)}</td>
                     <td className="px-5 py-3"><StatusBadge status={r.status} /></td>
-                  </tr>))}
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>

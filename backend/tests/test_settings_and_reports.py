@@ -55,3 +55,23 @@ def test_analytics_overview(client, auth_headers_a):
     assert rep["latest_attendance"] == 1200
     assert rep["sunday_average"] == 1100
     assert rep["growth_rate"] == 20.0
+
+
+def test_new_church_starts_with_clean_empty_attendance(client, auth_headers_a):
+    # Sessions list must be empty (no mock records)
+    sess_res = client.get("/api/sessions", headers=auth_headers_a)
+    assert sess_res.status_code == 200
+    assert sess_res.json() == []
+
+    # Reports overview must return zeros (no fabricated statistics)
+    rep_res = client.get("/api/reports/overview", headers=auth_headers_a)
+    assert rep_res.status_code == 200
+    rep = rep_res.json()
+    assert rep["total_attendance"] == 0
+    assert rep["total_sessions"] == 0
+    assert rep["confirmed_sessions"] == 0
+    assert rep["pending_sessions"] == 0
+    assert rep["latest_attendance"] == 0
+    assert rep["sunday_average"] == 0
+    assert rep["growth_rate"] == 0.0
+    assert rep["target_completion_pct"] == 0.0

@@ -307,7 +307,6 @@ export const api = {
         createdBy: s.created_by_name || "Admin",
         description: s.description,
         countSource: s.count_source as any,
-        isSample: false,
       }));
     },
     get: async (id: string): Promise<AttendanceRecord> => {
@@ -323,7 +322,6 @@ export const api = {
         createdBy: s.created_by_name || "Admin",
         description: s.description,
         countSource: s.count_source as any,
-        isSample: false,
       };
     },
     start: async (id: string) => request(`/api/sessions/${id}/start`, { method: "POST" }),

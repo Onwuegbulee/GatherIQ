@@ -22,23 +22,27 @@ async def attendance_session_websocket(
 ):
     await websocket.accept()
 
-    # Authenticate token via query param
+    # Authenticate token via query param (required for church tenant isolation)
     token = websocket.query_params.get("token")
-    user_id = None
-    church_id = None
+    if not token:
+        await websocket.send_json({
+            "type": "error",
+            "message": "Authentication required.",
+        })
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
 
-    if token:
-        try:
-            payload = decode_access_token(token)
-            user_id = uuid.UUID(payload["sub"])
-            church_id = uuid.UUID(payload["church_id"])
-        except Exception:
-            await websocket.send_json({
-                "type": "error",
-                "message": "Authentication failed: invalid or expired token.",
-            })
-            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-            return
+    try:
+        payload = decode_access_token(token)
+        user_id = uuid.UUID(payload["sub"])
+        church_id = uuid.UUID(payload["church_id"])
+    except Exception:
+        await websocket.send_json({
+            "type": "error",
+            "message": "Authentication failed: invalid or expired token.",
+        })
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
 
     # Verify session belongs to authenticated church
     with SessionLocal() as db:
@@ -83,21 +87,21 @@ async def attendance_session_websocket(
                         if "," in b64_str:
                             b64_str = b64_str.split(",", 1)[1]
                         frame_bytes = base64.b64decode(b64_str)
-                    elif msg_type == "demo_adjust":
-                        # Demo adjustments explicitly labeled as demo
+                    elif msg_type in {"manual_adjust", "demo_adjust"}:
+                        source = "manual" if msg_type == "manual_adjust" else "demo"
                         delta = int(data.get("delta", 0))
                         with SessionLocal() as db:
                             curr_session = db.scalar(select(AttendanceSession).where(AttendanceSession.id == session_id))
-                            if curr_session and curr_session.status != "completed":
+                            if curr_session and curr_session.status not in {"completed", "confirmed"}:
                                 curr_session.total_count = max(0, curr_session.total_count + delta)
-                                curr_session.count_source = "demo"
+                                curr_session.count_source = source
                                 db.commit()
                                 await websocket.send_json({
                                     "type": "count_update",
                                     "total_count": curr_session.total_count,
-                                    "count_source": "demo",
+                                    "count_source": source,
                                     "is_genuine_ai": False,
-                                    "message": "Demo count adjusted manually",
+                                    "message": "Count adjusted manually",
                                 })
                         continue
                 except Exception as exc:

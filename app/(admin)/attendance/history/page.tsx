@@ -1,13 +1,13 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowDown, ArrowUp, CalendarRange, CheckCircle2, ChevronLeft, ChevronRight, Download, Eye, MoreVertical, Search, SearchX, Trash2, X } from "lucide-react";
+import { AlertCircle, ArrowDown, ArrowUp, CalendarRange, CheckCircle2, ChevronLeft, ChevronRight, Download, Eye, MoreVertical, Plus, RefreshCw, Search, SearchX, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input, Select } from "@/components/ui/form";
 import { MenuItem, Popover } from "@/components/ui/popover";
 import { PageHeader } from "@/components/page-header";
-import { COLORS, Heatmap } from "@/components/charts/charts";
+import { Heatmap } from "@/components/charts/charts";
 import { StatusBadge } from "@/components/status-badge";
 import { ServiceIcon } from "@/lib/service-meta";
 import { useUI } from "@/components/ui-provider";
@@ -23,20 +23,21 @@ const DAY = 86_400_000;
 function RowMenu({ r }: { r: AttendanceRecord }) {
   const ui = useUI();
   const { confirmRecord, deleteRecord } = useApp();
+  const sourceLabel = r.countSource === "ai" ? "AI Count" : "Manual";
   return (
     <Popover className="w-52" trigger={({ toggle }) => <button onClick={(e) => { e.stopPropagation(); toggle(); }} aria-label={`Actions for ${r.serviceName}`} className="grid h-8 w-8 place-items-center rounded-lg text-muted hover:bg-slate-100"><MoreVertical className="h-4 w-4" /></button>}>
       {(close) => (<div onClick={(e) => e.stopPropagation()}>
         <MenuItem onClick={() => { close(); ui.openRecord(r.id); }}><Eye className="h-4 w-4" />View details</MenuItem>
-        {r.status === "Pending" && <MenuItem onClick={() => { close(); confirmRecord(r.id); ui.toast("Attendance confirmed"); }}><CheckCircle2 className="h-4 w-4" />Confirm attendance</MenuItem>}
-        <MenuItem onClick={() => { close(); downloadCsv(`${r.serviceName}-${r.date}.csv`, [["Service", "Date", "Attendance", "Duration", "Status", "Source"], [r.serviceName, r.date, r.attendance, formatMinutes(r.durationSeconds), r.status, r.countSource || (r.isSample ? "Sample" : "Saved")]]); }}><Download className="h-4 w-4" />Export record</MenuItem>
-        {!r.isSample && <MenuItem className="text-danger hover:bg-red-50" onClick={() => { close(); deleteRecord(r.id); ui.toast("Record deleted", "info"); }}><Trash2 className="h-4 w-4" />Delete record</MenuItem>}
+        {r.status === "Pending" && <MenuItem onClick={() => { close(); confirmRecord(r.id).then(() => ui.toast("Attendance confirmed")).catch(() => ui.toast("Failed to confirm attendance", "info")); }}><CheckCircle2 className="h-4 w-4" />Confirm attendance</MenuItem>}
+        <MenuItem onClick={() => { close(); downloadCsv(`${r.serviceName}-${r.date}.csv`, [["Service", "Date", "Attendance", "Duration", "Status", "Source"], [r.serviceName, r.date, r.attendance, formatMinutes(r.durationSeconds), r.status, sourceLabel]]); }}><Download className="h-4 w-4" />Export record</MenuItem>
+        <MenuItem className="text-danger hover:bg-red-50" onClick={() => { close(); deleteRecord(r.id).then(() => ui.toast("Record deleted", "info")).catch(() => ui.toast("Failed to delete record", "info")); }}><Trash2 className="h-4 w-4" />Delete record</MenuItem>
       </div>)}
     </Popover>
   );
 }
 
 export default function HistoryPage() {
-  const { records } = useApp();
+  const { records, dataLoading, dataError, refreshData } = useApp();
   const ui = useUI();
   const [q, setQ] = useState("");
   const [type, setType] = useState("all");
@@ -72,7 +73,13 @@ export default function HistoryPage() {
   const toggleSort = (key: SortKey) => setSort((s) => (s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "desc" }));
   const togglePick = (id: string) => setPicked((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const exportRows = (picked.size ? filtered.filter((r) => picked.has(r.id)) : filtered);
-  const exportCsv = () => { downloadCsv("attendance-history.csv", [["Service", "Type", "Date", "Attendance", "Duration", "Status", "Source"], ...exportRows.map((r) => [r.serviceName, r.serviceType, r.date, r.attendance, formatMinutes(r.durationSeconds), r.status, r.countSource || (r.isSample ? "Sample" : "Saved")])]); ui.toast(`Exported ${exportRows.length} record${exportRows.length === 1 ? "" : "s"}`); };
+  const exportCsv = () => {
+    downloadCsv("attendance-history.csv", [
+      ["Service", "Type", "Date", "Attendance", "Duration", "Status", "Source"],
+      ...exportRows.map((r) => [r.serviceName, r.serviceType, r.date, r.attendance, formatMinutes(r.durationSeconds), r.status, r.countSource === "ai" ? "AI Count" : "Manual"]),
+    ]);
+    ui.toast(`Exported ${exportRows.length} record${exportRows.length === 1 ? "" : "s"}`);
+  };
 
   const SortHead = ({ k, children, className }: { k: SortKey; children: React.ReactNode; className?: string }) => (
     <th className={cn("px-4 py-3 font-medium", className)} aria-sort={sort.key === k ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}>
@@ -97,8 +104,18 @@ export default function HistoryPage() {
 
   return (
     <>
-      <PageHeader title="Attendance History" description="Every counted session. Sort, filter, confirm and export from one place."
-        actions={<Button variant="outline" onClick={exportCsv} disabled={!filtered.length}><Download className="h-4 w-4" />{picked.size ? `Export ${picked.size} selected` : "Export CSV"}</Button>} />
+      <PageHeader
+        title="Attendance History"
+        description="Every counted session. Sort, filter, confirm and export from one place."
+        actions={<Button variant="outline" onClick={exportCsv} disabled={!filtered.length}><Download className="h-4 w-4" />{picked.size ? `Export ${picked.size} selected` : "Export CSV"}</Button>}
+      />
+
+      {dataError && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          <div className="flex items-center gap-2"><AlertCircle className="h-4 w-4 shrink-0" /><span>{dataError}</span></div>
+          <Button size="sm" variant="outline" onClick={() => refreshData()} disabled={dataLoading}><RefreshCw className={cn("h-3.5 w-3.5", dataLoading && "animate-spin")} />Retry</Button>
+        </div>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-12">
         <div className="grid grid-cols-2 gap-4 lg:col-span-5">
@@ -107,11 +124,20 @@ export default function HistoryPage() {
               <p className={cn("text-xs font-medium", i === 0 ? "text-white/70" : "text-muted")}>{k.l}</p>
               <p className="mt-2 text-2xl font-semibold tabular-nums tracking-tight">{k.v}</p>
               <p className={cn("mt-1 text-xs", i === 0 ? "text-white/60" : "text-muted")}>{k.s}</p>
-            </div>))}
+            </div>
+          ))}
         </div>
         <Card className="lg:col-span-7">
-          <CardHeader className="flex-row items-start justify-between"><div><CardTitle>Attendance calendar</CardTitle><CardDescription>Last 26 weeks. Darker means a bigger crowd.</CardDescription></div><Badge tone="amber">Sample data</Badge></CardHeader>
-          <CardContent><Heatmap records={records} /></CardContent>
+          <CardHeader className="flex-row items-start justify-between"><div><CardTitle>Attendance calendar</CardTitle><CardDescription>Last 26 weeks. Darker means a bigger crowd.</CardDescription></div></CardHeader>
+          <CardContent>
+            {records.length === 0 ? (
+              <div className="flex h-28 items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/50 text-sm text-muted">
+                No attendance calendar data yet.
+              </div>
+            ) : (
+              <Heatmap records={records} />
+            )}
+          </CardContent>
         </Card>
       </div>
 
@@ -135,13 +161,30 @@ export default function HistoryPage() {
             {["all", ...types].map((t) => (
               <button key={t} onClick={() => setType(t)} aria-pressed={type === t} className={cn("flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium", type === t ? "border-brand bg-brand-soft text-brand-dark" : "border-line text-slate-600 hover:bg-slate-50")}>
                 {t !== "all" && <ServiceIcon type={t} className="h-5 w-5" />}{t === "all" ? "All services" : t}
-              </button>))}
+              </button>
+            ))}
             {hasFilters && <button onClick={clear} className="ml-auto flex items-center gap-1 text-xs font-medium text-muted hover:text-ink"><X className="h-3.5 w-3.5" />Clear filters</button>}
           </div>
         </div>
 
-        {rows.length === 0 ? (
-          <div className="px-6 py-16 text-center"><SearchX className="mx-auto h-8 w-8 text-muted" /><p className="mt-3 font-medium">No sessions match your filters</p><p className="mt-1 text-sm text-muted">Try a different search or widen the date range.</p><Button variant="outline" className="mt-4" onClick={clear}>Clear filters</Button></div>
+        {dataLoading && records.length === 0 ? (
+          <div className="px-6 py-16 text-center text-sm text-muted">Loading attendance history…</div>
+        ) : rows.length === 0 ? (
+          records.length === 0 ? (
+            <div className="px-6 py-16 text-center">
+              <CalendarRange className="mx-auto h-8 w-8 text-muted" />
+              <p className="mt-3 font-medium">No attendance sessions yet</p>
+              <p className="mt-1 text-sm text-muted">Your attendance history will appear here after your first completed session.</p>
+              <Button className="mt-4" onClick={ui.openNewAttendance}><Plus className="h-4 w-4" />Start New Attendance</Button>
+            </div>
+          ) : (
+            <div className="px-6 py-16 text-center">
+              <SearchX className="mx-auto h-8 w-8 text-muted" />
+              <p className="mt-3 font-medium">No sessions match your filters</p>
+              <p className="mt-1 text-sm text-muted">Try a different search or widen the date range.</p>
+              <Button variant="outline" className="mt-4" onClick={clear}>Clear filters</Button>
+            </div>
+          )
         ) : (<>
           <div className="hidden overflow-x-auto scroll-thin md:block">
             <table className="w-full min-w-[860px] text-sm">
@@ -153,14 +196,15 @@ export default function HistoryPage() {
                 {rows.map((r) => (
                   <tr key={r.id} onClick={() => ui.openRecord(r.id)} className={cn("group cursor-pointer border-b border-line/60 last:border-0 hover:bg-brand-soft/50", picked.has(r.id) && "bg-brand-soft/60")}>
                     <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={`Select ${r.serviceName}`} checked={picked.has(r.id)} onChange={() => togglePick(r.id)} className="h-4 w-4 accent-brand" /></td>
-                    <td className="px-4 py-3"><div className="flex items-center gap-3"><ServiceIcon type={r.serviceType} className="h-10 w-10" /><div className="min-w-0"><p className="truncate font-medium">{r.serviceName}</p><div className="mt-0.5 flex gap-1">{r.isSample ? <Badge tone="amber">Sample</Badge> : <Badge tone="green">Saved here</Badge>}</div></div></div></td>
+                    <td className="px-4 py-3"><div className="flex items-center gap-3"><ServiceIcon type={r.serviceType} className="h-10 w-10" /><div className="min-w-0"><p className="truncate font-medium">{r.serviceName}</p><div className="mt-0.5 flex gap-1"><Badge tone={r.countSource === "ai" ? "green" : "slate"}>{r.countSource === "ai" ? "AI Verified" : "Saved"}</Badge></div></div></div></td>
                     <td className="px-4 py-3"><p className="font-medium">{formatDate(r.date, { day: "numeric", month: "short" })}</p><p className="text-xs text-muted">{formatDate(r.date, { weekday: "long" })}</p></td>
-                    <td className="px-4 py-3"><div className="flex items-center justify-between"><b className="tabular-nums">{r.attendance.toLocaleString()}</b><span className="text-xs text-muted font-medium">{r.countSource === "ai" ? "AI Count" : r.isSample ? "Sample" : "Manual"}</span></div>
+                    <td className="px-4 py-3"><div className="flex items-center justify-between"><b className="tabular-nums">{r.attendance.toLocaleString()}</b><span className="text-xs font-medium text-muted">{r.countSource === "ai" ? "AI Count" : "Manual"}</span></div>
                       <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-slate-100" style={{ width: "100%" }}><div className="h-full rounded-full bg-brand" style={{ width: `${Math.min(100, (r.attendance / (peak || 1)) * 100)}%` }} /></div></td>
                     <td className="px-4 py-3 text-muted">{formatMinutes(r.durationSeconds)}</td>
                     <td className="px-4 py-3"><StatusBadge status={r.status} /></td>
                     <td className="px-4 py-3 text-right"><RowMenu r={r} /></td>
-                  </tr>))}
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
@@ -169,9 +213,10 @@ export default function HistoryPage() {
               <li key={r.id} onClick={() => ui.openRecord(r.id)} className="flex cursor-pointer items-center gap-3 p-4 active:bg-slate-50">
                 <ServiceIcon type={r.serviceType} className="h-11 w-11" />
                 <div className="min-w-0 flex-1"><p className="truncate font-medium">{r.serviceName}</p><p className="text-xs text-muted">{formatDate(r.date)} · {formatMinutes(r.durationSeconds)}</p><div className="mt-1.5"><StatusBadge status={r.status} /></div></div>
-                <div className="text-right"><p className="text-lg font-semibold tabular-nums">{r.attendance.toLocaleString()}</p><p className="text-[11px] text-muted">♂ {r.male} · ♀ {r.female}</p></div>
+                <div className="text-right"><p className="text-lg font-semibold tabular-nums">{r.attendance.toLocaleString()}</p><p className="text-[11px] text-muted">{r.countSource === "ai" ? "AI Count" : "Manual"}</p></div>
                 <RowMenu r={r} />
-              </li>))}
+              </li>
+            ))}
           </ul>
         </>)}
 
