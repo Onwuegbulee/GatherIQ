@@ -82,10 +82,12 @@ export default function DashboardPage() {
     return () => clearInterval(id);
   }, [insights.length]);
 
+  const churchName = settings.churchName.trim();
+
   return (
     <>
       <PageHeader
-        title={`${greeting}${settings.adminName ? `, ${settings.adminName}` : ""}.`}
+        title={`${greeting}${churchName ? `, ${churchName}` : ""}.`}
         description={`Here's an overview of your church attendance.${today ? ` ${today}.` : ""}`}
         actions={<Button onClick={ui.openNewAttendance}><Plus className="h-4 w-4" />New Attendance</Button>}
       />
