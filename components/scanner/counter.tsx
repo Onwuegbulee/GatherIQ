@@ -4,16 +4,26 @@ import { cn } from "@/lib/utils";
 
 export function Counter({
   count,
+  aiUniqueCount = 0,
+  manualAdjustment = 0,
+  activeInFrame = 0,
   state,
   isGenuineAI = false,
+  wsStatus = "disconnected",
   aiMessage,
+  aiError,
   onAdjust,
 }: {
   count: number;
+  aiUniqueCount?: number;
+  manualAdjustment?: number;
+  activeInFrame?: number;
   state: string;
   isGenuineAI?: boolean;
   countSource?: string;
+  wsStatus?: "connecting" | "connected" | "disconnected" | "error";
   aiMessage?: string;
+  aiError?: string | null;
   onAdjust: (delta: number) => void;
 }) {
   const live = state === "recording";
@@ -40,7 +50,7 @@ export function Counter({
         ) : (
           <span className="flex items-center gap-1 rounded bg-white/20 px-2 py-0.5 font-medium text-white">
             <Sliders className="h-3 w-3" />
-            MANUAL COUNT
+            {wsStatus === "connecting" ? "AI CONNECTING" : "MANUAL COUNT"}
           </span>
         )}
       </div>
@@ -55,6 +65,23 @@ export function Counter({
       <p className="mt-2 text-xs font-semibold tracking-[0.2em] text-white/90">
         TOTAL PEOPLE COUNTED
       </p>
+
+      {/* Genuine AI Breakdown: in-frame detections vs unique tracked session total */}
+      {isGenuineAI && (
+        <div className="mt-2.5 flex flex-wrap items-center justify-center gap-1.5 text-[11px] text-white/85">
+          <span className="rounded-full bg-white/10 px-2.5 py-0.5 tabular-nums">
+            {activeInFrame} in frame
+          </span>
+          <span className="rounded-full bg-emerald-500/25 px-2.5 py-0.5 tabular-nums text-emerald-200">
+            {aiUniqueCount} unique tracked
+          </span>
+          {manualAdjustment !== 0 && (
+            <span className="rounded-full bg-white/10 px-2.5 py-0.5 tabular-nums">
+              {manualAdjustment > 0 ? `+${manualAdjustment}` : manualAdjustment} manual
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Manual Adjuster Controls (when AI vision is not active) */}
       {live && !isGenuineAI && (
@@ -77,15 +104,19 @@ export function Counter({
         </div>
       )}
 
-      {live && !isGenuineAI && (
+      {aiError && (
+        <p className="mt-2 text-[11px] text-amber-300">{aiError}</p>
+      )}
+
+      {live && !isGenuineAI && !aiError && (
         <p className="mt-2.5 text-[11px] text-white/70">
           {aiMessage || "AI vision engine is not connected. Tap + or − to adjust count manually."}
         </p>
       )}
 
-      {live && isGenuineAI && (
-        <p className="mt-2.5 text-[11px] text-emerald-300">
-          Real-time AI model actively counting individuals.
+      {live && isGenuineAI && !aiError && (
+        <p className="mt-2 text-[11px] text-emerald-300">
+          YOLOv8 + ByteTrack actively counting people.
         </p>
       )}
     </div>

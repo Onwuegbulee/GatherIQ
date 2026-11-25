@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import json
 import logging
@@ -8,11 +9,13 @@ from sqlalchemy import select
 
 from app.cv.pipeline import vision_pipeline
 from app.database import SessionLocal
-from app.models import AttendanceSession, User
+from app.models import AttendanceSession
 from app.security import decode_access_token
 
 logger = logging.getLogger("gatheriq.ws")
 router = APIRouter()
+
+MAX_FRAME_BYTES = 2 * 1024 * 1024  # 2 MB cap per sampled frame
 
 
 @router.websocket("/session/{session_id}")
@@ -34,7 +37,7 @@ async def attendance_session_websocket(
 
     try:
         payload = decode_access_token(token)
-        user_id = uuid.UUID(payload["sub"])
+        uuid.UUID(payload["sub"])
         church_id = uuid.UUID(payload["church_id"])
     except Exception:
         await websocket.send_json({
@@ -51,25 +54,30 @@ async def attendance_session_websocket(
             await websocket.send_json({"type": "error", "message": "Attendance session not found."})
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
-        if church_id and session.church_id != church_id:
+        if session.church_id != church_id:
             await websocket.send_json({"type": "error", "message": "Access denied: session belongs to another church."})
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
+        initial_total = session.total_count
 
-    vision_pipeline.reset_session()
+    # Create an isolated per-session tracker so concurrent sessions/churches never share state
+    tracker = vision_pipeline.create_session_tracker(initial_manual_adjustment=initial_total)
+    logger.info("WebSocket connected for session=%s church=%s cv_ready=%s", session_id, church_id, vision_pipeline.is_ready)
+
     await websocket.send_json({
         "type": "connected",
         "session_id": str(session_id),
         "cv_ready": vision_pipeline.is_ready,
         "cv_status": vision_pipeline.status_message,
-        "current_total": session.total_count,
+        "current_total": tracker.counter.total_count,
+        "ai_unique_count": tracker.counter.ai_unique_count,
+        "manual_adjustment": tracker.counter.manual_adjustment,
     })
 
     try:
         while True:
-            # Handle text JSON or binary frame
             message = await websocket.receive()
-            frame_bytes = None
+            frame_bytes: bytes | None = None
 
             if "bytes" in message and message["bytes"]:
                 frame_bytes = message["bytes"]
@@ -82,39 +90,56 @@ async def attendance_session_websocket(
                         await websocket.send_json({"type": "pong"})
                         continue
                     elif msg_type == "frame" and "image" in data:
-                        # Base64 encoded frame
                         b64_str = data["image"]
+                        if not isinstance(b64_str, str) or not b64_str:
+                            await websocket.send_json({"type": "error", "message": "Invalid frame payload."})
+                            continue
                         if "," in b64_str:
                             b64_str = b64_str.split(",", 1)[1]
-                        frame_bytes = base64.b64decode(b64_str)
+                        try:
+                            frame_bytes = base64.b64decode(b64_str, validate=True)
+                        except Exception:
+                            await websocket.send_json({"type": "error", "message": "Invalid base64 frame data."})
+                            continue
                     elif msg_type in {"manual_adjust", "demo_adjust"}:
                         source = "manual" if msg_type == "manual_adjust" else "demo"
                         delta = int(data.get("delta", 0))
+                        new_total = tracker.counter.adjust_manual(delta)
                         with SessionLocal() as db:
                             curr_session = db.scalar(select(AttendanceSession).where(AttendanceSession.id == session_id))
                             if curr_session and curr_session.status not in {"completed", "confirmed"}:
-                                curr_session.total_count = max(0, curr_session.total_count + delta)
-                                curr_session.count_source = source
+                                curr_session.total_count = new_total
+                                curr_session.count_source = "ai" if (tracker.counter.ai_unique_count > 0 and vision_pipeline.is_ready) else source
                                 db.commit()
                                 await websocket.send_json({
                                     "type": "count_update",
                                     "total_count": curr_session.total_count,
-                                    "count_source": source,
-                                    "is_genuine_ai": False,
+                                    "ai_unique_count": tracker.counter.ai_unique_count,
+                                    "manual_adjustment": tracker.counter.manual_adjustment,
+                                    "count_source": curr_session.count_source,
+                                    "is_genuine_ai": vision_pipeline.is_ready and tracker.counter.ai_unique_count > 0,
                                     "message": "Count adjusted manually",
                                 })
                         continue
                 except Exception as exc:
-                    logger.warning("Error parsing text message: %s", exc)
+                    logger.warning("Error parsing WebSocket text message for session=%s: %s", session_id, exc)
                     continue
 
-            if frame_bytes:
-                result = vision_pipeline.process_frame(frame_bytes)
+            if frame_bytes is not None:
+                if len(frame_bytes) > MAX_FRAME_BYTES:
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "Frame exceeds maximum allowed size (2 MB).",
+                    })
+                    continue
+
+                # Run CPU-bound YOLO + ByteTrack inference off the async event loop
+                result = await asyncio.to_thread(tracker.process_frame, frame_bytes)
 
                 if result.is_genuine_ai:
                     with SessionLocal() as db:
                         curr_session = db.scalar(select(AttendanceSession).where(AttendanceSession.id == session_id))
-                        if curr_session and curr_session.status in {"recording", "ready"}:
+                        if curr_session and curr_session.status in {"recording", "ready", "paused"}:
                             curr_session.total_count = result.total_count
                             curr_session.count_source = "ai"
                             db.commit()
@@ -123,14 +148,22 @@ async def attendance_session_websocket(
                     "type": "detection_result",
                     "session_id": str(session_id),
                     "total_count": result.total_count,
+                    "ai_unique_count": result.ai_unique_count,
+                    "manual_adjustment": result.manual_adjustment,
                     "active_in_frame": result.active_in_frame,
+                    "active_track_ids": result.active_track_ids,
+                    "boxes": result.boxes,
                     "count_source": result.count_source,
                     "is_genuine_ai": result.is_genuine_ai,
                     "confidence": result.confidence,
+                    "latency_ms": result.latency_ms,
                     "message": result.message,
                 })
 
     except WebSocketDisconnect:
-        logger.info("WebSocket disconnected for session %s", session_id)
+        logger.info("WebSocket disconnected for session=%s", session_id)
     except Exception as exc:
-        logger.error("WebSocket unhandled exception: %s", exc)
+        logger.error("WebSocket unhandled exception for session=%s: %s", session_id, exc)
+    finally:
+        # Release per-session tracker resources
+        del tracker

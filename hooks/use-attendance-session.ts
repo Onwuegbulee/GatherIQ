@@ -3,12 +3,27 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ScannerState } from "@/lib/types";
 import { WS_BASE, api, getApiToken } from "@/lib/api";
 
+export interface DetectionBox {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  track_id: number | null;
+  confidence: number;
+}
+
 export function useAttendanceSession(sessionId?: string) {
   const [state, setState] = useState<ScannerState>("ready");
   const [count, setCount] = useState(0);
+  const [aiUniqueCount, setAiUniqueCount] = useState(0);
+  const [manualAdjustment, setManualAdjustment] = useState(0);
+  const [activeInFrame, setActiveInFrame] = useState(0);
+  const [boxes, setBoxes] = useState<DetectionBox[]>([]);
   const [countSource, setCountSource] = useState<"ai" | "manual">("manual");
   const [isGenuineAI, setIsGenuineAI] = useState(false);
-  const [aiMessage, setAiMessage] = useState<string>("Waiting for AI vision connection…");
+  const [wsStatus, setWsStatus] = useState<"connecting" | "connected" | "disconnected" | "error">("connecting");
+  const [aiMessage, setAiMessage] = useState<string>("Connecting to AI vision engine…");
+  const [aiError, setAiError] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
 
   const startedAt = useRef<number | null>(null);
@@ -33,6 +48,7 @@ export function useAttendanceSession(sessionId?: string) {
   // WebSocket lifecycle
   useEffect(() => {
     if (!sessionId || typeof window === "undefined") {
+      setWsStatus("disconnected");
       setIsGenuineAI(false);
       setAiMessage("AI vision engine is not connected.");
       return;
@@ -41,6 +57,8 @@ export function useAttendanceSession(sessionId?: string) {
     const token = getApiToken();
     const wsUrl = `${WS_BASE}/api/ws/session/${sessionId}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
     let socket: WebSocket;
+    setWsStatus("connecting");
+    setAiError(null);
 
     try {
       socket = new WebSocket(wsUrl);
@@ -51,25 +69,40 @@ export function useAttendanceSession(sessionId?: string) {
           const data = JSON.parse(event.data);
           if (data.type === "detection_result") {
             if (data.is_genuine_ai) {
-              setCount(data.total_count);
+              setCount(data.total_count ?? 0);
+              setAiUniqueCount(data.ai_unique_count ?? data.total_count ?? 0);
+              setManualAdjustment(data.manual_adjustment ?? 0);
+              setActiveInFrame(data.active_in_frame ?? 0);
+              setBoxes(Array.isArray(data.boxes) ? data.boxes : []);
               setIsGenuineAI(true);
               setCountSource("ai");
+              setAiError(null);
             } else {
               setIsGenuineAI(false);
+              setActiveInFrame(0);
+              setBoxes([]);
+              if (data.message) setAiError(data.message);
             }
             if (data.message) setAiMessage(data.message);
           } else if (data.type === "count_update") {
-            setCount(data.total_count);
+            setCount(data.total_count ?? 0);
+            if (typeof data.ai_unique_count === "number") setAiUniqueCount(data.ai_unique_count);
+            if (typeof data.manual_adjustment === "number") setManualAdjustment(data.manual_adjustment);
             setCountSource(data.count_source === "ai" ? "ai" : "manual");
             setIsGenuineAI(Boolean(data.is_genuine_ai));
             if (data.message) setAiMessage(data.message);
           } else if (data.type === "connected") {
+            setWsStatus("connected");
             if (typeof data.current_total === "number") setCount(data.current_total);
+            if (typeof data.ai_unique_count === "number") setAiUniqueCount(data.ai_unique_count);
+            if (typeof data.manual_adjustment === "number") setManualAdjustment(data.manual_adjustment);
             setIsGenuineAI(Boolean(data.cv_ready));
             setCountSource(data.cv_ready ? "ai" : "manual");
             setAiMessage(data.cv_status || (data.cv_ready ? "AI vision engine is ready." : "AI vision engine is not connected."));
           } else if (data.type === "error") {
+            setWsStatus("error");
             setIsGenuineAI(false);
+            setAiError(data.message || "AI vision connection error.");
             setAiMessage(data.message || "AI vision connection error.");
           }
         } catch {
@@ -78,15 +111,20 @@ export function useAttendanceSession(sessionId?: string) {
       };
 
       socket.onerror = () => {
+        setWsStatus("error");
         setIsGenuineAI(false);
+        setAiError("AI vision engine connection failed.");
         setAiMessage("AI vision engine is not connected.");
       };
 
       socket.onclose = () => {
+        setWsStatus("disconnected");
         setIsGenuineAI(false);
       };
     } catch {
+      setWsStatus("error");
       setIsGenuineAI(false);
+      setAiError("AI vision engine is not connected.");
       setAiMessage("AI vision engine is not connected.");
     }
 
@@ -105,6 +143,8 @@ export function useAttendanceSession(sessionId?: string) {
 
   const pause = useCallback(() => {
     setState((s) => (s === "recording" ? "paused" : s));
+    setActiveInFrame(0);
+    setBoxes([]);
     if (sessionId) api.sessions.pause(sessionId).catch(() => undefined);
   }, [sessionId]);
 
@@ -115,21 +155,22 @@ export function useAttendanceSession(sessionId?: string) {
 
   const end = useCallback(() => {
     setState("processing");
+    setActiveInFrame(0);
+    setBoxes([]);
     if (sessionId) api.sessions.end(sessionId).catch(() => undefined);
   }, [sessionId]);
 
   const complete = useCallback(() => setState("completed"), []);
 
   const adjustCount = useCallback((delta: number) => {
-    setCount((c) => {
-      const next = Math.max(0, c + delta);
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({ type: "manual_adjust", delta }));
-      }
-      return next;
-    });
-    setCountSource("manual");
-    setIsGenuineAI(false);
+    setCount((c) => Math.max(0, c + delta));
+    setManualAdjustment((m) => m + delta);
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: "manual_adjust", delta }));
+    } else {
+      setCountSource("manual");
+      setIsGenuineAI(false);
+    }
   }, []);
 
   const sendFrame = useCallback((frameBlobOrB64: Blob | string) => {
@@ -144,10 +185,16 @@ export function useAttendanceSession(sessionId?: string) {
   return {
     state,
     count,
+    aiUniqueCount,
+    manualAdjustment,
+    activeInFrame,
+    boxes,
     elapsed,
     countSource,
     isGenuineAI,
+    wsStatus,
     aiMessage,
+    aiError,
     start,
     pause,
     resume,

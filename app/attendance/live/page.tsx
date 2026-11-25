@@ -106,6 +106,28 @@ function Scanner() {
         <video ref={cam.videoRef} playsInline muted autoPlay aria-label="Live camera preview"
           className={cn("absolute inset-0 h-full w-full object-cover", cam.facing === "user" && "-scale-x-100", !camOn && "invisible")} />
         {camOn && <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/55 via-transparent to-black/65" />}
+        {camOn && state === "recording" && session.boxes.length > 0 && (
+          <div className="pointer-events-none absolute inset-0 z-[5]" aria-hidden>
+            {session.boxes.map((b, i) => (
+              <div
+                key={b.track_id ?? i}
+                className="absolute rounded-lg border-2 border-emerald-400/90 bg-emerald-400/10"
+                style={{
+                  left: `${(cam.facing === "user" ? 1 - b.x2 : b.x1) * 100}%`,
+                  top: `${b.y1 * 100}%`,
+                  width: `${(b.x2 - b.x1) * 100}%`,
+                  height: `${(b.y2 - b.y1) * 100}%`,
+                }}
+              >
+                {b.track_id !== null && (
+                  <span className="absolute -top-5 left-0 rounded bg-emerald-500 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                    #{b.track_id}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
         {camOn && (
           <div className="pointer-events-none absolute inset-x-6 bottom-52 top-28 max-lg:landscape:bottom-6 max-lg:landscape:top-20" aria-hidden>
             {["left-0 top-0 border-l-[3px] border-t-[3px] rounded-tl-2xl", "right-0 top-0 border-r-[3px] border-t-[3px] rounded-tr-2xl", "bottom-0 left-0 border-b-[3px] border-l-[3px] rounded-bl-2xl", "bottom-0 right-0 border-b-[3px] border-r-[3px] rounded-br-2xl"].map((c) => <i key={c} className={`absolute h-8 w-8 border-white/70 ${c}`} />)}
@@ -126,10 +148,15 @@ function Scanner() {
           <div className="absolute bottom-44 left-1/2 z-10 -translate-x-1/2 max-lg:landscape:bottom-4 max-lg:landscape:left-4 max-lg:landscape:translate-x-0">
             <Counter
               count={session.count}
+              aiUniqueCount={session.aiUniqueCount}
+              manualAdjustment={session.manualAdjustment}
+              activeInFrame={session.activeInFrame}
               state={state}
               isGenuineAI={session.isGenuineAI}
               countSource={session.countSource}
+              wsStatus={session.wsStatus}
               aiMessage={session.aiMessage}
+              aiError={session.aiError}
               onAdjust={session.adjustCount}
             />
           </div>
