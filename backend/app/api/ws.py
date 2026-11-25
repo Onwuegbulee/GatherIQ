@@ -4,11 +4,13 @@ import json
 import logging
 import uuid
 
+from contextlib import contextmanager
+
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
 from sqlalchemy import select
 
 from app.cv.pipeline import vision_pipeline
-from app.database import SessionLocal
+from app.database import SessionLocal, get_db
 from app.models import AttendanceSession
 from app.security import decode_access_token
 
@@ -16,6 +18,24 @@ logger = logging.getLogger("gatheriq.ws")
 router = APIRouter()
 
 MAX_FRAME_BYTES = 2 * 1024 * 1024  # 2 MB cap per sampled frame
+
+
+@contextmanager
+def _ws_db(websocket: WebSocket):
+    override = websocket.app.dependency_overrides.get(get_db)
+    if override is not None:
+        gen = override()
+        db = next(gen)
+        try:
+            yield db
+        finally:
+            try:
+                next(gen)
+            except StopIteration:
+                pass
+    else:
+        with SessionLocal() as db:
+            yield db
 
 
 @router.websocket("/session/{session_id}")
@@ -48,7 +68,7 @@ async def attendance_session_websocket(
         return
 
     # Verify session belongs to authenticated church
-    with SessionLocal() as db:
+    with _ws_db(websocket) as db:
         session = db.scalar(select(AttendanceSession).where(AttendanceSession.id == session_id))
         if not session:
             await websocket.send_json({"type": "error", "message": "Attendance session not found."})
@@ -105,7 +125,7 @@ async def attendance_session_websocket(
                         source = "manual" if msg_type == "manual_adjust" else "demo"
                         delta = int(data.get("delta", 0))
                         new_total = tracker.counter.adjust_manual(delta)
-                        with SessionLocal() as db:
+                        with _ws_db(websocket) as db:
                             curr_session = db.scalar(select(AttendanceSession).where(AttendanceSession.id == session_id))
                             if curr_session and curr_session.status not in {"completed", "confirmed"}:
                                 curr_session.total_count = new_total
@@ -137,7 +157,7 @@ async def attendance_session_websocket(
                 result = await asyncio.to_thread(tracker.process_frame, frame_bytes)
 
                 if result.is_genuine_ai:
-                    with SessionLocal() as db:
+                    with _ws_db(websocket) as db:
                         curr_session = db.scalar(select(AttendanceSession).where(AttendanceSession.id == session_id))
                         if curr_session and curr_session.status in {"recording", "ready", "paused"}:
                             curr_session.total_count = result.total_count

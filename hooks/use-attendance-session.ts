@@ -162,6 +162,17 @@ export function useAttendanceSession(sessionId?: string) {
 
   const complete = useCallback(() => setState("completed"), []);
 
+  const applyAICount = useCallback((newCount: number, message?: string) => {
+    const safeCount = Math.max(0, Math.round(newCount));
+    setCount(safeCount);
+    setAiUniqueCount(safeCount);
+    setManualAdjustment(0);
+    setCountSource("ai");
+    setIsGenuineAI(true);
+    setAiError(null);
+    if (message) setAiMessage(message);
+  }, []);
+
   const adjustCount = useCallback((delta: number) => {
     setCount((c) => Math.max(0, c + delta));
     setManualAdjustment((m) => m + delta);
@@ -200,6 +211,7 @@ export function useAttendanceSession(sessionId?: string) {
     resume,
     end,
     complete,
+    applyAICount,
     adjustCount,
     sendFrame,
   };

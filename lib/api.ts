@@ -342,6 +342,28 @@ export const api = {
     overview: async () => request<any>("/api/reports/overview"),
   },
 
+  cv: {
+    detectImage: async (image: string, sessionId?: string) =>
+      request<{
+        count: number;
+        count_source: "ai" | "unavailable";
+        is_genuine_ai: boolean;
+        confidence: number;
+        boxes: { x1: number; y1: number; x2: number; y2: number; confidence: number }[];
+        annotated_image: string;
+        frame_width: number;
+        frame_height: number;
+        latency_ms: number;
+        message: string;
+      }>("/api/cv/detect-image", {
+        method: "POST",
+        body: JSON.stringify({
+          image,
+          session_id: sessionId || null,
+        }),
+      }),
+  },
+
   superadmin: {
     overview: async (): Promise<any> => {
       const res = await request<any>("/api/superadmin/overview");

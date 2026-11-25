@@ -1,8 +1,8 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Camera, CameraOff, Loader2, Pause, Play, RefreshCw, RotateCcw, ScanLine, Square, X, ShieldCheck } from "lucide-react";
+import { Camera, CameraOff, ImageUp, Loader2, Pause, Play, RefreshCw, RotateCcw, ScanLine, Square, X, ShieldCheck } from "lucide-react";
 import { Brand } from "@/components/brand";
 import { Modal } from "@/components/ui/modal";
 import { Counter } from "@/components/scanner/counter";
@@ -11,6 +11,7 @@ import { useApp } from "@/context/app-context";
 import { useCamera } from "@/hooks/use-camera";
 import { useAttendanceSession } from "@/hooks/use-attendance-session";
 import { useWakeLock } from "@/hooks/use-wake-lock";
+import { api } from "@/lib/api";
 import { cn, formatDuration } from "@/lib/utils";
 
 export default function LivePage() {
@@ -35,6 +36,18 @@ function Scanner() {
   const cam = useCamera({ facing: settings.facingMode, quality: settings.videoQuality, deviceId: settings.preferredCamera });
   const session = useAttendanceSession(draft?.id);
   const [confirm, setConfirm] = useState<"end" | "leave" | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [stillBusy, setStillBusy] = useState(false);
+  const [stillError, setStillError] = useState<string | null>(null);
+  const [stillModal, setStillModal] = useState<{
+    originalImage: string;
+    annotatedImage: string;
+    count: number;
+    confidence: number;
+    latencyMs: number;
+    isGenuineAI: boolean;
+    message: string;
+  } | null>(null);
   const { state } = session;
   const active = state === "recording" || state === "paused";
 
@@ -78,6 +91,53 @@ function Scanner() {
   }, [active]);
 
   const close = () => (active ? setConfirm("leave") : (cam.stop(), router.push("/attendance/new")));
+
+  const runStillDetection = useCallback(async (dataUrl: string) => {
+    setStillBusy(true);
+    setStillError(null);
+    try {
+      const res = await api.cv.detectImage(dataUrl, draft?.id);
+      setStillModal({
+        originalImage: dataUrl,
+        annotatedImage: res.annotated_image || dataUrl,
+        count: res.count,
+        confidence: res.confidence,
+        latencyMs: res.latency_ms,
+        isGenuineAI: res.is_genuine_ai,
+        message: res.message,
+      });
+    } catch (err: any) {
+      setStillError(err?.message || "Could not process image. Please try again.");
+    } finally {
+      setStillBusy(false);
+    }
+  }, [draft?.id]);
+
+  const captureStill = useCallback(() => {
+    const video = cam.videoElementRef.current;
+    if (!video || video.readyState < 2) return;
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.min(video.videoWidth || 640, 1280);
+    canvas.height = Math.min(video.videoHeight || 480, 960);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+    void runStillDetection(dataUrl);
+  }, [cam.videoElementRef, runStillDetection]);
+
+  const handlePhotoUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        void runStillDetection(reader.result);
+      }
+    };
+    reader.readAsDataURL(file);
+  }, [runStillDetection]);
 
   const finish = useCallback(() => {
     setConfirm(null);
@@ -166,8 +226,9 @@ function Scanner() {
 
         {/* Controls */}
         {camOn && (
-          <div className="safe-bottom safe-x absolute inset-x-0 bottom-0 z-10 flex items-end justify-center gap-4 pt-4 max-lg:landscape:inset-x-auto max-lg:landscape:bottom-0 max-lg:landscape:right-0 max-lg:landscape:top-0 max-lg:landscape:flex-col max-lg:landscape:items-center max-lg:landscape:justify-center max-lg:landscape:gap-2 max-lg:landscape:pr-4">
+          <div className="safe-bottom safe-x absolute inset-x-0 bottom-0 z-10 flex items-end justify-center gap-3 pt-4 max-lg:landscape:inset-x-auto max-lg:landscape:bottom-0 max-lg:landscape:right-0 max-lg:landscape:top-0 max-lg:landscape:flex-col max-lg:landscape:items-center max-lg:landscape:justify-center max-lg:landscape:gap-2 max-lg:landscape:pr-4">
             <RoundButton label="Switch camera" onClick={cam.switchCamera} disabled={!cam.canSwitch}><RefreshCw className="h-6 w-6" /></RoundButton>
+            <RoundButton label={stillBusy ? "Detecting…" : "Still photo"} onClick={captureStill} disabled={stillBusy}><Camera className="h-6 w-6" /></RoundButton>
             {state === "ready" && <RoundButton label="Start scanning" size="lg" tone="brand" onClick={session.start}><Play className="h-9 w-9 translate-x-0.5" fill="currentColor" /></RoundButton>}
             {state === "recording" && <RoundButton label="Pause" size="lg" tone="amber" onClick={session.pause}><Pause className="h-9 w-9" fill="currentColor" /></RoundButton>}
             {state === "paused" && <RoundButton label="Resume" size="lg" tone="brand" onClick={session.resume}><Play className="h-9 w-9 translate-x-0.5" fill="currentColor" /></RoundButton>}
@@ -200,8 +261,13 @@ function Scanner() {
                 <p className="mt-3 flex items-center justify-center gap-1.5 text-xs text-white/50"><ShieldCheck className="h-3.5 w-3.5" />Counting happens on the video stream only.</p>
                 <div className="mt-6 flex flex-col gap-2">
                   <button onClick={() => cam.start()} className="h-12 rounded-lg bg-brand font-medium active:scale-[.98]">Enable camera</button>
+                  <button onClick={() => fileInputRef.current?.click()} disabled={stillBusy} className="inline-flex h-12 items-center justify-center gap-2 rounded-lg bg-white/15 font-medium hover:bg-white/20 disabled:opacity-50">
+                    {stillBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImageUp className="h-4 w-4" />}
+                    {stillBusy ? "Analyzing image…" : "Upload or capture still photo"}
+                  </button>
                   <button onClick={close} className="h-12 rounded-lg bg-white/10 font-medium">Cancel</button>
                 </div>
+                {stillError && <p className="mt-3 text-xs text-amber-300">{stillError}</p>}
               </div>
             )}
           </div>
@@ -212,6 +278,62 @@ function Scanner() {
           <div className="absolute inset-0 z-30 grid place-items-center bg-slate-950/95"><div className="text-center"><Loader2 className="mx-auto h-10 w-10 animate-spin text-brand" /><p className="mt-4 font-medium">Preparing your summary…</p><p className="mt-1 text-sm text-white/60">{session.count.toLocaleString()} counted in {time}</p></div></div>
         )}
       </div>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={handlePhotoUpload}
+      />
+
+      <Modal dark open={!!stillModal} onClose={() => setStillModal(null)} title="Still-image AI detection">
+        {stillModal && (
+          <div className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <p className="mb-1 text-xs font-medium text-white/70">Original image</p>
+                <img src={stillModal.originalImage} alt="Original congregation capture" className="max-h-48 w-full rounded-lg border border-white/15 object-contain bg-black" />
+              </div>
+              <div>
+                <p className="mb-1 text-xs font-medium text-emerald-300">Processed (YOLOv8 detections)</p>
+                <img src={stillModal.annotatedImage} alt="Processed image with bounding boxes" className="max-h-48 w-full rounded-lg border border-emerald-500/40 object-contain bg-black" />
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-2 rounded-xl bg-white/10 p-3 text-center text-xs">
+              <div><p className="text-white/60">People</p><p className="mt-0.5 text-lg font-bold tabular-nums">{stillModal.count}</p></div>
+              <div><p className="text-white/60">Confidence</p><p className="mt-0.5 text-lg font-bold tabular-nums">{Math.round(stillModal.confidence * 100)}%</p></div>
+              <div><p className="text-white/60">Latency</p><p className="mt-0.5 text-lg font-bold tabular-nums">{stillModal.latencyMs}ms</p></div>
+            </div>
+            <p className={cn("text-xs", stillModal.isGenuineAI ? "text-emerald-300" : "text-amber-300")}>{stillModal.message}</p>
+            <div className="flex gap-2">
+              <button onClick={() => setStillModal(null)} className="h-11 flex-1 rounded-lg bg-white/10 font-medium">Close</button>
+              {stillModal.isGenuineAI && (
+                <button
+                  onClick={() => {
+                    session.applyAICount(stillModal.count, stillModal.message);
+                    setStillModal(null);
+                    setResult({
+                      ...draft!,
+                      count: stillModal.count,
+                      countSource: "ai",
+                      durationSeconds: session.elapsed,
+                      endedAt: new Date().toISOString(),
+                      aiMessage: stillModal.message,
+                    });
+                    cam.stop();
+                    router.replace("/attendance/summary");
+                  }}
+                  className="h-11 flex-1 rounded-lg bg-brand font-medium"
+                >
+                  Use This Count ({stillModal.count})
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+      </Modal>
 
       <Modal dark open={confirm === "end"} onClose={() => setConfirm(null)} title="End attendance?">
         <p className="text-sm text-white/70">{session.count.toLocaleString()} people counted in {time}. The camera will turn off and you’ll review the summary.</p>

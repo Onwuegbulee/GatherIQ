@@ -133,3 +133,119 @@ def test_cv_pipeline_reset():
     vision_pipeline._tracked_ids.add(101)
     vision_pipeline.reset_session()
     assert len(vision_pipeline._tracked_ids) == 0
+
+
+def test_still_image_detection_endpoint_with_real_people_image(client, auth_headers_a):
+    """Priority 1 + 3: Real YOLOv8 still-image detection via POST /api/cv/detect-image."""
+    import base64
+    import cv2
+    import ultralytics
+
+    assets_dir = os.path.join(os.path.dirname(ultralytics.__file__), "assets")
+    bus_path = os.path.join(assets_dir, "bus.jpg")
+    if not os.path.exists(bus_path):
+        return
+
+    with open(bus_path, "rb") as f:
+        b64_in = base64.b64encode(f.read()).decode("ascii")
+
+    sess_res = client.post(
+        "/api/sessions",
+        json={"service_name": "Sunday Service", "service_type": "Sunday Service", "attendance_date": "2026-11-15"},
+        headers=auth_headers_a,
+    )
+    assert sess_res.status_code == 201
+    session_id = sess_res.json()["id"]
+
+    res = client.post(
+        "/api/cv/detect-image",
+        json={"image": f"data:image/jpeg;base64,{b64_in}", "session_id": session_id},
+        headers=auth_headers_a,
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["is_genuine_ai"] is True
+    assert data["count_source"] == "ai"
+    assert data["count"] >= 1
+    assert len(data["boxes"]) == data["count"]
+    assert data["confidence"] >= 0.35
+    assert data["annotated_image"].startswith("data:image/jpeg;base64,")
+
+    # Verify annotated_image decodes to a real JPEG matching returned dimensions
+    raw_out = base64.b64decode(data["annotated_image"].split(",", 1)[1])
+    decoded = cv2.imdecode(np.frombuffer(raw_out, np.uint8), cv2.IMREAD_COLOR)
+    assert decoded is not None
+    assert decoded.shape[1] == data["frame_width"]
+    assert decoded.shape[0] == data["frame_height"]
+
+    # Verify session count persisted as AI count
+    get_sess = client.get(f"/api/sessions/{session_id}", headers=auth_headers_a)
+    assert get_sess.status_code == 200
+    assert get_sess.json()["total_count"] == data["count"]
+    assert get_sess.json()["count_source"] == "ai"
+
+
+def test_still_image_detection_invalid_image(client, auth_headers_a):
+    import base64
+
+    bad_b64 = base64.b64encode(b"not_an_image").decode("ascii")
+    res = client.post(
+        "/api/cv/detect-image",
+        json={"image": f"data:image/jpeg;base64,{bad_b64}"},
+        headers=auth_headers_a,
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["is_genuine_ai"] is False
+    assert data["count_source"] == "unavailable"
+    assert data["count"] == 0
+
+
+def test_websocket_real_frame_processing_and_manual_distinction(client, auth_headers_a):
+    """Priority 3: Real WebSocket frame inference, duplicate-frame safety, and manual/AI distinction."""
+    import base64
+    import ultralytics
+
+    assets_dir = os.path.join(os.path.dirname(ultralytics.__file__), "assets")
+    bus_path = os.path.join(assets_dir, "bus.jpg")
+    if not os.path.exists(bus_path):
+        return
+
+    with open(bus_path, "rb") as f:
+        b64_in = base64.b64encode(f.read()).decode("ascii")
+
+    sess_res = client.post(
+        "/api/sessions",
+        json={"service_name": "Sunday Service", "service_type": "Sunday Service", "attendance_date": "2026-11-15"},
+        headers=auth_headers_a,
+    )
+    assert sess_res.status_code == 201
+    session_id = sess_res.json()["id"]
+    token = auth_headers_a["Authorization"].split(" ", 1)[1]
+
+    with client.websocket_connect(f"/api/ws/session/{session_id}?token={token}") as ws:
+        conn = ws.receive_json()
+        assert conn["type"] == "connected"
+        assert conn["cv_ready"] is True
+
+        ws.send_json({"type": "frame", "image": f"data:image/jpeg;base64,{b64_in}"})
+        det1 = ws.receive_json()
+        assert det1["type"] == "detection_result"
+        assert det1["is_genuine_ai"] is True
+        assert det1["count_source"] == "ai"
+        assert det1["total_count"] >= 1
+        ai_count = det1["ai_unique_count"]
+
+        # Repeated identical frame must not inflate total_count
+        ws.send_json({"type": "frame", "image": f"data:image/jpeg;base64,{b64_in}"})
+        det2 = ws.receive_json()
+        assert det2["total_count"] == det1["total_count"]
+        assert det2["ai_unique_count"] == ai_count
+
+        # Manual adjustment stays separate from ai_unique_count
+        ws.send_json({"type": "manual_adjust", "delta": 2})
+        upd = ws.receive_json()
+        assert upd["type"] == "count_update"
+        assert upd["ai_unique_count"] == ai_count
+        assert upd["manual_adjustment"] == 2
+        assert upd["total_count"] == ai_count + 2

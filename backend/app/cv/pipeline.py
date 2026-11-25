@@ -12,6 +12,20 @@ DEFAULT_CONF_THRESHOLD = 0.35
 
 
 @dataclass
+class StillImageDetectionResult:
+    count: int
+    count_source: str  # "ai" or "unavailable"
+    is_genuine_ai: bool
+    confidence: float = 0.0
+    boxes: list[dict[str, Any]] = field(default_factory=list)
+    annotated_image: str = ""
+    frame_width: int = 0
+    frame_height: int = 0
+    latency_ms: float = 0.0
+    message: str = ""
+
+
+@dataclass
 class DetectionResult:
     total_count: int
     count_source: str  # "ai", "manual", "unavailable"
@@ -338,6 +352,122 @@ class VisionPipeline:
 
     def process_frame(self, frame_bytes: bytes) -> DetectionResult:
         return self._default_tracker.process_frame(frame_bytes)
+
+    def detect_still_image(self, frame_bytes: bytes) -> StillImageDetectionResult:
+        """
+        Run genuine YOLOv8 person detection on a single still image in memory,
+        draw bounding boxes + confidence labels, and return the annotated JPEG as a data URI.
+        """
+        t0 = time.perf_counter()
+
+        if not self.is_ready or self.model is None:
+            return StillImageDetectionResult(
+                count=0,
+                count_source="unavailable",
+                is_genuine_ai=False,
+                message=self.status_message,
+            )
+
+        if not frame_bytes:
+            return StillImageDetectionResult(
+                count=0,
+                count_source="unavailable",
+                is_genuine_ai=False,
+                message="Empty image file received.",
+            )
+
+        try:
+            import base64
+            import cv2
+            import numpy as np
+
+            nparr = np.frombuffer(frame_bytes, np.uint8)
+            img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            if img is None:
+                return StillImageDetectionResult(
+                    count=0,
+                    count_source="unavailable",
+                    is_genuine_ai=False,
+                    message="Invalid or corrupted image file.",
+                )
+
+            img = _resize_for_inference(img, cv2)
+            frame_h, frame_w = img.shape[:2]
+            annotated = img.copy()
+
+            boxes_np = self.detect_persons(img)
+            out_boxes: list[dict[str, Any]] = []
+            confidences: list[float] = []
+
+            if boxes_np is not None and len(boxes_np) > 0:
+                for i in range(len(boxes_np)):
+                    xyxy = boxes_np.xyxy[i]
+                    score = float(boxes_np.conf[i])
+                    x1, y1, x2, y2 = float(xyxy[0]), float(xyxy[1]), float(xyxy[2]), float(xyxy[3])
+                    confidences.append(score)
+                    out_boxes.append({
+                        "x1": round(max(0.0, min(1.0, x1 / frame_w)), 4),
+                        "y1": round(max(0.0, min(1.0, y1 / frame_h)), 4),
+                        "x2": round(max(0.0, min(1.0, x2 / frame_w)), 4),
+                        "y2": round(max(0.0, min(1.0, y2 / frame_h)), 4),
+                        "confidence": round(score, 2),
+                    })
+
+                    px1, py1 = max(0, int(round(x1))), max(0, int(round(y1)))
+                    px2, py2 = min(frame_w - 1, int(round(x2))), min(frame_h - 1, int(round(y2)))
+                    cv2.rectangle(annotated, (px1, py1), (px2, py2), (74, 163, 22), 2)
+                    label = f"Person {int(round(score * 100))}%"
+                    cv2.putText(
+                        annotated,
+                        label,
+                        (px1, max(16, py1 - 6)),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.5,
+                        (74, 163, 22),
+                        2,
+                        cv2.LINE_AA,
+                    )
+
+            ok, jpg_buf = cv2.imencode(".jpg", annotated, [int(cv2.IMWRITE_JPEG_QUALITY), 88])
+            if not ok:
+                raise RuntimeError("Failed to encode annotated JPEG image.")
+            b64_out = base64.b64encode(jpg_buf.tobytes()).decode("ascii")
+            annotated_uri = f"data:image/jpeg;base64,{b64_out}"
+
+            avg_conf = sum(confidences) / len(confidences) if confidences else 0.0
+            latency_ms = round((time.perf_counter() - t0) * 1000.0, 1)
+            count = len(out_boxes)
+            logger.info(
+                "Still-image CV frame=%dx%d detected_people=%d avg_conf=%.2f latency=%.1fms",
+                frame_w,
+                frame_h,
+                count,
+                avg_conf,
+                latency_ms,
+            )
+
+            return StillImageDetectionResult(
+                count=count,
+                count_source="ai",
+                is_genuine_ai=True,
+                confidence=round(avg_conf, 2),
+                boxes=out_boxes,
+                annotated_image=annotated_uri,
+                frame_width=frame_w,
+                frame_height=frame_h,
+                latency_ms=latency_ms,
+                message=f"Detected {count} {'person' if count == 1 else 'people'} using YOLOv8.",
+            )
+        except Exception as exc:
+            latency_ms = round((time.perf_counter() - t0) * 1000.0, 1)
+            logger.error("Still-image CV error (%.1fms): %s", latency_ms, exc)
+            return StillImageDetectionResult(
+                count=0,
+                count_source="unavailable",
+                is_genuine_ai=False,
+                latency_ms=latency_ms,
+                message=f"Image processing error: {exc}",
+            )
 
     def reset_session(self) -> None:
         self._default_tracker.reset()
