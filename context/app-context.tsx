@@ -300,6 +300,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
 
     const source = r.countSource === "ai" ? "ai" : "manual";
+    await api.sessions.start(sessionId!).catch(() => undefined);
     await api.sessions.updateCount(sessionId!, r.count, source).catch(() => undefined);
     await api.sessions.end(sessionId!).catch(() => undefined);
     await api.sessions.confirm(sessionId!);

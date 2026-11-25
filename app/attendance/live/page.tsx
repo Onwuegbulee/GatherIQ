@@ -291,22 +291,31 @@ function Scanner() {
       <Modal dark open={!!stillModal} onClose={() => setStillModal(null)} title="Still-image AI detection">
         {stillModal && (
           <div className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div>
-                <p className="mb-1 text-xs font-medium text-white/70">Original image</p>
-                <img src={stillModal.originalImage} alt="Original congregation capture" className="max-h-48 w-full rounded-lg border border-white/15 object-contain bg-black" />
+            {stillModal.isGenuineAI ? (
+              <>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <p className="mb-1 text-xs font-medium text-white/70">Original image</p>
+                    <img src={stillModal.originalImage} alt="Original congregation capture" className="max-h-48 w-full rounded-lg border border-white/15 object-contain bg-black" />
+                  </div>
+                  <div>
+                    <p className="mb-1 text-xs font-medium text-emerald-300">Processed (YOLOv8 detections)</p>
+                    <img src={stillModal.annotatedImage} alt="Processed image with bounding boxes" className="max-h-48 w-full rounded-lg border border-emerald-500/40 object-contain bg-black" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-2 rounded-xl bg-white/10 p-3 text-center text-xs">
+                  <div><p className="text-white/60">People</p><p className="mt-0.5 text-lg font-bold tabular-nums">{stillModal.count}</p></div>
+                  <div><p className="text-white/60">Confidence</p><p className="mt-0.5 text-lg font-bold tabular-nums">{Math.round(stillModal.confidence * 100)}%</p></div>
+                  <div><p className="text-white/60">Latency</p><p className="mt-0.5 text-lg font-bold tabular-nums">{stillModal.latencyMs}ms</p></div>
+                </div>
+                <p className="text-xs text-emerald-300">{stillModal.message}</p>
+              </>
+            ) : (
+              <div className="rounded-xl border border-amber-400/30 bg-amber-500/10 p-4 text-sm text-amber-200">
+                <p className="font-medium">Detection unavailable</p>
+                <p className="mt-1 text-xs text-amber-200/80">{stillModal.message}</p>
               </div>
-              <div>
-                <p className="mb-1 text-xs font-medium text-emerald-300">Processed (YOLOv8 detections)</p>
-                <img src={stillModal.annotatedImage} alt="Processed image with bounding boxes" className="max-h-48 w-full rounded-lg border border-emerald-500/40 object-contain bg-black" />
-              </div>
-            </div>
-            <div className="grid grid-cols-3 gap-2 rounded-xl bg-white/10 p-3 text-center text-xs">
-              <div><p className="text-white/60">People</p><p className="mt-0.5 text-lg font-bold tabular-nums">{stillModal.count}</p></div>
-              <div><p className="text-white/60">Confidence</p><p className="mt-0.5 text-lg font-bold tabular-nums">{Math.round(stillModal.confidence * 100)}%</p></div>
-              <div><p className="text-white/60">Latency</p><p className="mt-0.5 text-lg font-bold tabular-nums">{stillModal.latencyMs}ms</p></div>
-            </div>
-            <p className={cn("text-xs", stillModal.isGenuineAI ? "text-emerald-300" : "text-amber-300")}>{stillModal.message}</p>
+            )}
             <div className="flex gap-2">
               <button onClick={() => setStillModal(null)} className="h-11 flex-1 rounded-lg bg-white/10 font-medium">Close</button>
               {stillModal.isGenuineAI && (
