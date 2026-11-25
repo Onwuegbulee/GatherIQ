@@ -17,7 +17,7 @@ interface AppContextValue {
   ready: boolean;
   authed: boolean;
   user: UserProfile | null;
-  login: (email?: string, password?: string, remember?: boolean) => Promise<boolean>;
+  login: (email?: string, password?: string, remember?: boolean) => Promise<UserProfile>;
   setupChurch: (churchName: string, churchLocation: string, fullName: string, email: string, password: string) => Promise<boolean>;
   logout: () => void;
   services: ServiceCategory[];
@@ -87,114 +87,127 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         write(sessionStorage, K.auth, null);
       }
 
-      const isOnline = await api.health();
-      setBackendOnline(isOnline);
-
       const activeToken = getApiToken();
-      if (isOnline) {
-        if (activeToken) {
-          try {
-            const profile = await api.auth.me();
-            setUser(profile);
-            setAuthed(true);
-            // Fetch real services, settings, and sessions
-            const [realServices, realSettings, realSessions] = await Promise.all([
+      if (activeToken) {
+        try {
+          const profile = await api.auth.me();
+          setUser(profile);
+          setAuthed(true);
+          setBackendOnline(true);
+
+          if (profile.role !== "super_admin" && (profile.church_id || profile.churchId)) {
+            Promise.all([
               api.services.list().catch(() => null),
               api.settings.get().catch(() => null),
               api.sessions.list().catch(() => null),
-            ]);
-            if (realServices) {
-              setServices(realServices);
-              write(localStorage, K.services, realServices);
-            }
-            if (realSettings) {
-              setSettings((prev) => ({ ...prev, ...realSettings }));
-              write(localStorage, K.settings, realSettings);
-            }
-            if (realSessions && realSessions.length > 0) {
-              setSaved(realSessions);
-              write(localStorage, K.saved, realSessions);
-            }
-          } catch {
-            // Token might be expired, try refresh
+            ]).then(([realServices, realSettings, realSessions]) => {
+              if (realServices) {
+                setServices(realServices);
+                write(localStorage, K.services, realServices);
+              }
+              if (realSettings) {
+                setSettings((prev) => ({ ...prev, ...realSettings }));
+                write(localStorage, K.settings, realSettings);
+              }
+              if (realSessions && realSessions.length > 0) {
+                setSaved(realSessions);
+                write(localStorage, K.saved, realSessions);
+              }
+            });
+          }
+        } catch (err: any) {
+          if (err?.status === 401) {
             try {
               const refreshed = await api.auth.refresh();
               setUser(refreshed.user);
               setAuthed(true);
-            } catch {
-              // Token invalid or refresh expired: clear credentials
-              setApiToken(null);
-              write(localStorage, K.auth, null);
-              write(sessionStorage, K.auth, null);
-              setUser(null);
-              setAuthed(false);
+              setBackendOnline(true);
+            } catch (refErr: any) {
+              if (refErr?.status === 401) {
+                setApiToken(null);
+                write(localStorage, K.auth, null);
+                write(sessionStorage, K.auth, null);
+                setUser(null);
+                setAuthed(false);
+              }
             }
-          }
-        } else {
-          // No access token in storage: attempt session restoration via HttpOnly refresh cookie
-          try {
-            const refreshed = await api.auth.refresh();
-            setUser(refreshed.user);
-            setAuthed(true);
-            const [realServices, realSettings, realSessions] = await Promise.all([
-              api.services.list().catch(() => null),
-              api.settings.get().catch(() => null),
-              api.sessions.list().catch(() => null),
-            ]);
-            if (realServices) {
-              setServices(realServices);
-              write(localStorage, K.services, realServices);
-            }
-            if (realSettings) {
-              setSettings((prev) => ({ ...prev, ...realSettings }));
-              write(localStorage, K.settings, realSettings);
-            }
-            if (realSessions && realSessions.length > 0) {
-              setSaved(realSessions);
-              write(localStorage, K.saved, realSessions);
-            }
-          } catch {
-            setUser(null);
-            setAuthed(false);
+          } else if (err?.status === 0) {
+            // Temporary network/spinup delay: keep auth state, mark backend temporarily offline
+            setBackendOnline(false);
           }
         }
       } else {
-        // Backend offline or no valid token: NEVER silently authenticate
-        setUser(null);
-        setAuthed(false);
+        // No access token in storage: attempt session restoration via refresh token / cookie
+        try {
+          const refreshed = await api.auth.refresh();
+          setUser(refreshed.user);
+          setAuthed(true);
+          setBackendOnline(true);
+
+          if (refreshed.user?.role !== "super_admin" && (refreshed.user?.church_id || refreshed.user?.churchId)) {
+            Promise.all([
+              api.services.list().catch(() => null),
+              api.settings.get().catch(() => null),
+              api.sessions.list().catch(() => null),
+            ]).then(([realServices, realSettings, realSessions]) => {
+              if (realServices) {
+                setServices(realServices);
+                write(localStorage, K.services, realServices);
+              }
+              if (realSettings) {
+                setSettings((prev) => ({ ...prev, ...realSettings }));
+                write(localStorage, K.settings, realSettings);
+              }
+              if (realSessions && realSessions.length > 0) {
+                setSaved(realSessions);
+                write(localStorage, K.saved, realSessions);
+              }
+            });
+          }
+        } catch {
+          setUser(null);
+          setAuthed(false);
+        }
       }
+
+      api.health().then((online) => setBackendOnline(online)).catch(() => {});
       setReady(true);
     }
 
     init();
   }, []);
 
-  const login = useCallback(async (email?: string, password?: string, remember: boolean = true) => {
+  const login = useCallback(async (email?: string, password?: string, remember: boolean = true): Promise<UserProfile> => {
     if (!email || !password) {
       throw new Error("Email and password are required.");
     }
-    const res = await api.auth.login(email, password, remember);
+    const res = await api.auth.login(email.trim(), password, remember);
     setUser(res.user);
     setAuthed(true);
+    setBackendOnline(true);
     write(remember ? localStorage : sessionStorage, K.auth, res.access_token);
 
-    // Fetch fresh church services, settings, and sessions
-    const [svcs, stgs, sess] = await Promise.all([
-      api.services.list().catch(() => null),
-      api.settings.get().catch(() => null),
-      api.sessions.list().catch(() => null),
-    ]);
-    if (svcs) setServices(svcs);
-    if (stgs) setSettings((prev) => ({ ...prev, ...stgs }));
-    if (sess) setSaved(sess);
+    // If church user, fetch fresh church services, settings, and sessions
+    if (res.user.role !== "super_admin" && (res.user.church_id || res.user.churchId)) {
+      Promise.all([
+        api.services.list().catch(() => null),
+        api.settings.get().catch(() => null),
+        api.sessions.list().catch(() => null),
+      ]).then(([svcs, stgs, sess]) => {
+        if (svcs) setServices(svcs);
+        if (stgs) setSettings((prev) => ({ ...prev, ...stgs }));
+        if (sess) setSaved(sess);
+      });
+    }
 
-    return true;
+    return res.user;
   }, []);
 
   const setupChurch = useCallback(async (churchName: string, churchLocation: string, fullName: string, email: string, password: string) => {
     const res = await api.auth.setup(churchName, churchLocation, fullName, email, password);
     setUser(res.user);
     setAuthed(true);
+    setBackendOnline(true);
     write(localStorage, K.auth, res.access_token);
     const [svcs, stgs] = await Promise.all([
       api.services.list().catch(() => null),

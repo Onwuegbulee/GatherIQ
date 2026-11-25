@@ -8,14 +8,22 @@ import { useApp } from "@/context/app-context";
 import { cn } from "@/lib/utils";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
-  const { ready, authed } = useApp();
+  const { ready, authed, user } = useApp();
   const router = useRouter();
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => { setCollapsed(localStorage.getItem("cc_sidebar") === "1"); }, []);
-  useEffect(() => { if (ready && !authed) router.replace("/login"); }, [ready, authed, router]);
+  useEffect(() => {
+    if (ready) {
+      if (!authed) {
+        router.replace("/login");
+      } else if (user?.role === "super_admin") {
+        router.replace("/superadmin");
+      }
+    }
+  }, [ready, authed, user, router]);
   useEffect(() => setMobileOpen(false), [pathname]);
 
   if (!ready || !authed) return <div className="grid min-h-screen place-items-center text-sm text-muted">Loading…</div>;

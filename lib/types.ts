@@ -61,11 +61,15 @@ export interface AppSettings {
 export interface UserProfile {
   id: string;
   churchId?: string | null;
+  church_id?: string | null;
   fullName: string;
+  full_name?: string;
   email: string;
   role: string;
   isActive?: boolean;
+  is_active?: boolean;
   mustChangePassword?: boolean;
+  must_change_password?: boolean;
 }
 
 export interface ChurchDetails {

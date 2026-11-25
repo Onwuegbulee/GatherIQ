@@ -11,7 +11,7 @@ import { useApp } from "@/context/app-context";
 import { api } from "@/lib/api";
 
 export default function SuperAdminLoginPage() {
-  const { ready, authed, user } = useApp();
+  const { ready, authed, user, login, logout } = useApp();
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -36,15 +36,14 @@ export default function SuperAdminLoginPage() {
 
     setBusy(true);
     try {
-      const res = await api.auth.login(email.trim(), password, remember);
-      if (res.user?.role !== "super_admin") {
-        await api.auth.logout();
+      const loggedInUser = await login(email.trim(), password, remember);
+      if (loggedInUser.role !== "super_admin") {
+        await logout();
         setErrors({
           general: "Access denied. Only platform Super Administrators may log in here.",
         });
         return;
       }
-      // If super admin has must_change_password flag, redirect to change password or dashboard
       router.push("/superadmin");
     } catch (err: any) {
       setErrors({

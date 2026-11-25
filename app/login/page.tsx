@@ -10,7 +10,7 @@ import { Field, Input } from "@/components/ui/form";
 import { useApp } from "@/context/app-context";
 
 export default function LoginPage() {
-  const { ready, authed, login } = useApp();
+  const { ready, authed, user, login } = useApp();
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -19,7 +19,15 @@ export default function LoginPage() {
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => { if (ready && authed) router.replace("/dashboard"); }, [ready, authed, router]);
+  useEffect(() => {
+    if (ready && authed) {
+      if (user?.role === "super_admin") {
+        router.replace("/superadmin");
+      } else {
+        router.replace("/dashboard");
+      }
+    }
+  }, [ready, authed, user, router]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -30,8 +38,12 @@ export default function LoginPage() {
     if (Object.keys(next).length) return;
     setBusy(true);
     try {
-      await login(email, password, remember);
-      router.push("/dashboard");
+      const loggedInUser = await login(email, password, remember);
+      if (loggedInUser.role === "super_admin") {
+        router.push("/superadmin");
+      } else {
+        router.push("/dashboard");
+      }
     } catch {
       setErrors({ email: "Authentication failed. Check your credentials or try again." });
     } finally {

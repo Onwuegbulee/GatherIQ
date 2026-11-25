@@ -16,4 +16,5 @@ venv/
 .env.local
 .env.*.local
 .pytest_cache/
+*.pt
 

@@ -77,6 +77,7 @@ def setup_church_and_admin(
         token_type="bearer",
         expires_in=expires_in,
         user=UserOut.model_validate(user),
+        refresh_token=refresh_raw,
     )
 
 
@@ -119,6 +120,7 @@ def login(
         token_type="bearer",
         expires_in=expires_in,
         user=UserOut.model_validate(user),
+        refresh_token=refresh_raw,
     )
 
 
@@ -146,6 +148,7 @@ def refresh_token_endpoint(
         token_type="bearer",
         expires_in=expires_in,
         user=UserOut.model_validate(user),
+        refresh_token=new_raw,
     )
 
 

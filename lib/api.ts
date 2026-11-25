@@ -25,19 +25,78 @@ class ApiError extends Error {
 }
 
 let authToken: string | null = null;
+let refreshTokenVal: string | null = null;
+
+function parseTokenString(raw: string | null): string | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return typeof parsed === "string" ? parsed : raw;
+  } catch {
+    return raw;
+  }
+}
+
+export function setApiTokens(
+  accessToken: string | null,
+  refreshToken: string | null = null,
+  remember: boolean = true
+) {
+  authToken = accessToken;
+  if (refreshToken !== null) {
+    refreshTokenVal = refreshToken;
+  }
+  if (typeof window === "undefined") return;
+
+  if (accessToken) {
+    const primaryStorage = remember ? localStorage : sessionStorage;
+    const secondaryStorage = remember ? sessionStorage : localStorage;
+
+    primaryStorage.setItem("cc_access_token", accessToken);
+    primaryStorage.setItem("cc_auth", JSON.stringify(accessToken));
+    secondaryStorage.removeItem("cc_access_token");
+    secondaryStorage.removeItem("cc_auth");
+
+    if (refreshToken) {
+      primaryStorage.setItem("cc_refresh_token", refreshToken);
+      secondaryStorage.removeItem("cc_refresh_token");
+    }
+  } else {
+    authToken = null;
+    refreshTokenVal = null;
+    localStorage.removeItem("cc_access_token");
+    localStorage.removeItem("cc_auth");
+    localStorage.removeItem("cc_refresh_token");
+    sessionStorage.removeItem("cc_access_token");
+    sessionStorage.removeItem("cc_auth");
+    sessionStorage.removeItem("cc_refresh_token");
+  }
+}
 
 export function setApiToken(token: string | null) {
-  authToken = token;
+  setApiTokens(token, null, true);
+}
+
+export function clearApiTokens() {
+  setApiTokens(null, null, false);
+}
+
+export function getRefreshToken(): string | null {
+  if (refreshTokenVal) return refreshTokenVal;
   if (typeof window !== "undefined") {
-    if (token) localStorage.setItem("cc_access_token", token);
-    else localStorage.removeItem("cc_access_token");
+    refreshTokenVal =
+      localStorage.getItem("cc_refresh_token") ||
+      sessionStorage.getItem("cc_refresh_token");
   }
+  return refreshTokenVal;
 }
 
 export function getApiToken(): string | null {
   if (authToken) return authToken;
   if (typeof window !== "undefined") {
-    authToken = localStorage.getItem("cc_access_token");
+    const local = localStorage.getItem("cc_access_token") || parseTokenString(localStorage.getItem("cc_auth"));
+    const session = sessionStorage.getItem("cc_access_token") || parseTokenString(sessionStorage.getItem("cc_auth"));
+    authToken = local || session;
   }
   return authToken;
 }
@@ -96,15 +155,15 @@ export const api = {
 
   auth: {
     login: async (email: string, password: string, remember: boolean = false) => {
-      const res = await request<{ access_token: string; user: any }>("/api/auth/login", {
+      const res = await request<{ access_token: string; user: any; refresh_token?: string }>("/api/auth/login", {
         method: "POST",
         body: JSON.stringify({ email, password, remember }),
       });
-      setApiToken(res.access_token);
+      setApiTokens(res.access_token, res.refresh_token || null, remember);
       return res;
     },
     setup: async (churchName: string, churchLocation: string, fullName: string, email: string, password: string) => {
-      const res = await request<{ access_token: string; user: any }>("/api/auth/setup", {
+      const res = await request<{ access_token: string; user: any; refresh_token?: string }>("/api/auth/setup", {
         method: "POST",
         body: JSON.stringify({
           church_name: churchName,
@@ -114,24 +173,36 @@ export const api = {
           password,
         }),
       });
-      setApiToken(res.access_token);
+      setApiTokens(res.access_token, res.refresh_token || null, true);
       return res;
     },
     me: async () => {
       return request<UserProfile>("/api/auth/me");
     },
-    refresh: async () => {
-      const res = await request<{ access_token: string; user: any }>("/api/auth/refresh", {
+    refresh: async (explicitRefreshToken?: string) => {
+      const refToken = explicitRefreshToken || getRefreshToken();
+      const headers: Record<string, string> = {};
+      if (refToken) {
+        headers["X-Refresh-Token"] = refToken;
+      }
+      const res = await request<{ access_token: string; user: any; refresh_token?: string }>("/api/auth/refresh", {
         method: "POST",
+        headers,
       });
-      setApiToken(res.access_token);
+      const isRemembered = typeof window !== "undefined" && !!localStorage.getItem("cc_access_token");
+      setApiTokens(res.access_token, res.refresh_token || refToken || null, isRemembered);
       return res;
     },
     logout: async () => {
       try {
-        await request("/api/auth/logout", { method: "POST" });
+        const refToken = getRefreshToken();
+        const headers: Record<string, string> = {};
+        if (refToken) {
+          headers["X-Refresh-Token"] = refToken;
+        }
+        await request("/api/auth/logout", { method: "POST", headers });
       } finally {
-        setApiToken(null);
+        clearApiTokens();
       }
     },
     changePassword: async (currentPassword: string, newPassword: string) => {
