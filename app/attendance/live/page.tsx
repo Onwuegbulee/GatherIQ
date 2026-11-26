@@ -48,7 +48,7 @@ function Scanner() {
     isGenuineAI: boolean;
     message: string;
   } | null>(null);
-  const { state } = session;
+  const { state, sendFrame } = session;
   const active = state === "recording" || state === "paused";
 
   useWakeLock(state === "recording");
@@ -59,25 +59,30 @@ function Scanner() {
   // Frame sampling for real-time WebSocket CV processing
   useEffect(() => {
     if (cam.status !== "active" || state !== "recording") return;
-    const interval = setInterval(() => {
+    const captureAndSend = () => {
       const video = cam.videoElementRef.current;
       if (!video || video.readyState < 2) return;
       try {
+        const vw = video.videoWidth || 640;
+        const vh = video.videoHeight || 480;
+        const scale = Math.min(1, 640 / Math.max(vw, vh));
         const canvas = document.createElement("canvas");
-        canvas.width = Math.min(video.videoWidth || 640, 640);
-        canvas.height = Math.min(video.videoHeight || 480, 480);
+        canvas.width = Math.max(1, Math.round(vw * scale));
+        canvas.height = Math.max(1, Math.round(vh * scale));
         const ctx = canvas.getContext("2d");
         if (ctx) {
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
           const dataUrl = canvas.toDataURL("image/jpeg", 0.65);
-          session.sendFrame(dataUrl);
+          sendFrame(dataUrl);
         }
       } catch {
         // frame sampling skipped
       }
-    }, 1500);
+    };
+    captureAndSend();
+    const interval = setInterval(captureAndSend, 1500);
     return () => clearInterval(interval);
-  }, [cam.status, state, session, cam.videoRef]);
+  }, [cam.status, state, sendFrame, cam.videoElementRef]);
 
   // Guard against accidental loss: tab close/refresh and the browser back button
   useEffect(() => {
@@ -130,13 +135,42 @@ function Scanner() {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        void runStillDetection(reader.result);
-      }
+
+    const readRaw = () => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === "string") {
+          void runStillDetection(reader.result);
+        }
+      };
+      reader.readAsDataURL(file);
     };
-    reader.readAsDataURL(file);
+
+    // Downscale large smartphone photos (> 1.5 MB) to stay within the 5 MB backend cap;
+    // fall back to raw bytes if the file is not a browser-decodable image so backend returns a clear error.
+    if (file.size > 1_500_000 && typeof createImageBitmap === "function") {
+      createImageBitmap(file)
+        .then((bitmap) => {
+          const maxDim = 1280;
+          const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
+          const canvas = document.createElement("canvas");
+          canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+          canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+          const ctx = canvas.getContext("2d");
+          if (ctx) {
+            ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+            bitmap.close();
+            void runStillDetection(canvas.toDataURL("image/jpeg", 0.88));
+          } else {
+            bitmap.close();
+            readRaw();
+          }
+        })
+        .catch(() => readRaw());
+      return;
+    }
+
+    readRaw();
   }, [runStillDetection]);
 
   const finish = useCallback(() => {
@@ -283,7 +317,6 @@ function Scanner() {
         ref={fileInputRef}
         type="file"
         accept="image/*"
-        capture="environment"
         className="hidden"
         onChange={handlePhotoUpload}
       />
