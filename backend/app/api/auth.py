@@ -15,6 +15,7 @@ from app.security import (
     issue_refresh_token,
     revoke_refresh_token,
     rotate_refresh_token,
+    touch_refresh_token_activity,
     verify_password,
 )
 from app.setup import create_church_with_admin
@@ -159,10 +160,33 @@ def logout(
     db: Session = Depends(get_db),
 ):
     raw_token = request.cookies.get(COOKIE_NAME)
+    if not raw_token:
+        auth_header = request.headers.get("X-Refresh-Token")
+        if auth_header:
+            raw_token = auth_header.strip()
     if raw_token:
         revoke_refresh_token(db, raw_token)
     _clear_refresh_cookie(response)
     return {"message": "Logged out successfully."}
+
+
+@router.post("/activity", status_code=status.HTTP_200_OK)
+def record_user_activity(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    settings = get_settings()
+    raw_token = request.cookies.get(COOKIE_NAME)
+    if not raw_token:
+        auth_header = request.headers.get("X-Refresh-Token")
+        if auth_header:
+            raw_token = auth_header.strip()
+    touch_refresh_token_activity(db, current_user.id, raw_token)
+    return {
+        "status": "ok",
+        "inactivity_timeout_minutes": settings.inactivity_timeout_minutes,
+    }
 
 
 @router.get("/me", response_model=UserOut)

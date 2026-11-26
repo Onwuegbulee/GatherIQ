@@ -77,17 +77,23 @@ def refresh_expiry(remember: bool) -> datetime:
     return now + timedelta(hours=settings.refresh_session_hours)
 
 
+def _ensure_utc(dt: datetime) -> datetime:
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+
+
 def issue_refresh_token(db: Session, user: User, remember: bool) -> str:
     from app.models import RefreshToken
 
     raw, digest = new_refresh_token()
+    now = datetime.now(timezone.utc)
     token = RefreshToken(
         id=uuid.uuid4(),
         user_id=user.id,
         token_hash=digest,
         expires_at=refresh_expiry(remember),
         remember=remember,
-        created_at=datetime.now(timezone.utc),
+        last_activity_at=now,
+        created_at=now,
     )
     db.add(token)
     db.commit()
@@ -97,13 +103,23 @@ def issue_refresh_token(db: Session, user: User, remember: bool) -> str:
 def rotate_refresh_token(db: Session, raw_token: str) -> tuple[str, User]:
     from app.models import RefreshToken
 
+    settings = get_settings()
     digest = hash_refresh_token(raw_token)
     token = db.scalar(select(RefreshToken).where(RefreshToken.token_hash == digest))
     now = datetime.now(timezone.utc)
-    expires_at = token.expires_at if token and token.expires_at.tzinfo is not None else (token.expires_at.replace(tzinfo=timezone.utc) if token else now)
+    expires_at = _ensure_utc(token.expires_at) if token else now
 
     if token is None or token.revoked_at is not None or expires_at <= now:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired session. Please log in again.")
+
+    last_active = _ensure_utc(token.last_activity_at or token.created_at)
+    if (now - last_active) > timedelta(minutes=settings.inactivity_timeout_minutes):
+        token.revoked_at = now
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session expired due to inactivity. Please log in again.",
+        )
 
     user = db.scalar(select(User).where(User.id == token.user_id))
     if user is None or not user.is_active:
@@ -116,6 +132,7 @@ def rotate_refresh_token(db: Session, raw_token: str) -> tuple[str, User]:
         token_hash=new_digest,
         expires_at=refresh_expiry(token.remember),
         remember=token.remember,
+        last_activity_at=now,
         created_at=now,
     )
     db.add(new_token)
@@ -125,6 +142,52 @@ def rotate_refresh_token(db: Session, raw_token: str) -> tuple[str, User]:
     token.replaced_by_id = new_token.id
     db.commit()
     return new_raw, user
+
+
+def touch_refresh_token_activity(db: Session, user_id: uuid.UUID, raw_token: str | None = None) -> datetime:
+    from app.models import RefreshToken
+
+    settings = get_settings()
+    now = datetime.now(timezone.utc)
+    token: RefreshToken | None = None
+
+    if raw_token:
+        digest = hash_refresh_token(raw_token)
+        token = db.scalar(
+            select(RefreshToken).where(
+                RefreshToken.token_hash == digest,
+                RefreshToken.user_id == user_id,
+            )
+        )
+    else:
+        token = db.scalar(
+            select(RefreshToken)
+            .where(
+                RefreshToken.user_id == user_id,
+                RefreshToken.revoked_at.is_(None),
+            )
+            .order_by(RefreshToken.created_at.desc())
+        )
+
+    if token is None:
+        return now
+
+    expires_at = _ensure_utc(token.expires_at)
+    if token.revoked_at is not None or expires_at <= now:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired session. Please log in again.")
+
+    last_active = _ensure_utc(token.last_activity_at or token.created_at)
+    if (now - last_active) > timedelta(minutes=settings.inactivity_timeout_minutes):
+        token.revoked_at = now
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session expired due to inactivity. Please log in again.",
+        )
+
+    token.last_activity_at = now
+    db.commit()
+    return now
 
 
 def revoke_refresh_token(db: Session, raw_token: str) -> None:

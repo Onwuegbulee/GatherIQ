@@ -1,8 +1,10 @@
 "use client";
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import type { AppSettings, AttendanceRecord, ServiceCategory, SessionDraft, SessionResult, UserProfile } from "@/lib/types";
 import { DEFAULT_SERVICES, EMPTY_SETTINGS } from "@/lib/defaults";
 import { api, getApiToken, setApiToken } from "@/lib/api";
+import { SessionTimeoutModal } from "@/components/session-timeout-modal";
 
 const K = {
   auth: "cc_auth",
@@ -10,8 +12,15 @@ const K = {
   settings: "cc_settings",
   saved: "cc_saved_records",
   confirmed: "cc_confirmed",
+  lastActivity: "cc_last_activity",
+  logoutEvent: "cc_logout_event",
 };
 const S = { draft: "cc_session_draft", result: "cc_session_result" };
+
+const INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000;
+const WARNING_AT_MS = 13 * 60 * 1000;
+const ACTIVITY_THROTTLE_MS = 3_000;
+const SERVER_PING_INTERVAL_MS = 60_000;
 
 interface AppContextValue {
   ready: boolean;
@@ -22,7 +31,7 @@ interface AppContextValue {
   refreshData: () => Promise<void>;
   login: (email?: string, password?: string, remember?: boolean) => Promise<UserProfile>;
   setupChurch: (churchName: string, churchLocation: string, fullName: string, email: string, password: string) => Promise<boolean>;
-  logout: () => void;
+  logout: (reason?: "manual" | "inactivity") => Promise<void>;
   services: ServiceCategory[];
   addService: (s: Omit<ServiceCategory, "id">) => Promise<void>;
   updateService: (s: ServiceCategory) => Promise<void>;
@@ -61,6 +70,8 @@ function write(storage: Storage, key: string, value: unknown) {
 }
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
+  const pathname = usePathname();
   const [ready, setReady] = useState(false);
   const [authed, setAuthed] = useState(false);
   const [user, setUser] = useState<UserProfile | null>(null);
@@ -73,6 +84,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [confirmed, setConfirmed] = useState<string[]>([]);
   const [draft, setDraftState] = useState<SessionDraft | null>(null);
   const [result, setResultState] = useState<SessionResult | null>(null);
+
+  const [timeoutWarningOpen, setTimeoutWarningOpen] = useState(false);
+  const [remainingSeconds, setRemainingSeconds] = useState(120);
+  const [extendingSession, setExtendingSession] = useState(false);
+
+  const lastActivityRef = useRef<number>(Date.now());
+  const lastServerPingRef = useRef<number>(0);
+  const loggingOutRef = useRef<boolean>(false);
+  const warningOpenRef = useRef<boolean>(false);
+  warningOpenRef.current = timeoutWarningOpen;
 
   const loadChurchData = useCallback(async (profile: UserProfile) => {
     if (profile.role === "super_admin" || (!profile.church_id && !profile.churchId)) {
@@ -202,11 +223,49 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     init();
   }, [loadChurchData]);
 
+  const markActivityTimestamp = useCallback((now: number = Date.now()) => {
+    lastActivityRef.current = now;
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem(K.lastActivity, String(now));
+      } catch {
+        /* ignore */
+      }
+    }
+  }, []);
+
+  const clearLocalAuthState = useCallback(() => {
+    setApiToken(null);
+    write(localStorage, K.auth, null);
+    write(sessionStorage, K.auth, null);
+    write(localStorage, K.saved, null);
+    write(localStorage, K.services, null);
+    write(localStorage, K.settings, null);
+    write(localStorage, K.confirmed, null);
+    write(localStorage, K.lastActivity, null);
+    write(sessionStorage, S.draft, null);
+    write(sessionStorage, S.result, null);
+    setTimeoutWarningOpen(false);
+    setUser(null);
+    setAuthed(false);
+    setSaved([]);
+    setConfirmed([]);
+    setServices(DEFAULT_SERVICES);
+    setSettings(EMPTY_SETTINGS);
+    setDraftState(null);
+    setResultState(null);
+    setDataError(null);
+  }, []);
+
   const login = useCallback(async (email?: string, password?: string, remember: boolean = true): Promise<UserProfile> => {
     if (!email || !password) {
       throw new Error("Email and password are required.");
     }
     const res = await api.auth.login(email.trim(), password, remember);
+    loggingOutRef.current = false;
+    markActivityTimestamp(Date.now());
+    lastServerPingRef.current = Date.now();
+    setTimeoutWarningOpen(false);
     setUser(res.user);
     setAuthed(true);
     setBackendOnline(true);
@@ -218,43 +277,174 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
 
     return res.user;
-  }, [loadChurchData]);
+  }, [loadChurchData, markActivityTimestamp]);
 
   const setupChurch = useCallback(async (churchName: string, churchLocation: string, fullName: string, email: string, password: string) => {
     const res = await api.auth.setup(churchName, churchLocation, fullName, email, password);
+    loggingOutRef.current = false;
+    markActivityTimestamp(Date.now());
+    lastServerPingRef.current = Date.now();
+    setTimeoutWarningOpen(false);
     setUser(res.user);
     setAuthed(true);
     setBackendOnline(true);
     write(localStorage, K.auth, res.access_token);
     await loadChurchData(res.user);
     return true;
-  }, [loadChurchData]);
+  }, [loadChurchData, markActivityTimestamp]);
 
-  const logout = useCallback(async () => {
+  const logout = useCallback(async (reason: "manual" | "inactivity" = "manual") => {
+    if (loggingOutRef.current) return;
+    loggingOutRef.current = true;
+
+    const isSuperAdmin = user?.role === "super_admin" || (pathname?.startsWith("/superadmin") ?? false);
+
     try {
+      // If an attendance session is active/recording during inactivity logout,
+      // pause it cleanly on the server before revoking tokens so counts & duration are preserved.
+      if (reason === "inactivity") {
+        const activeDraft = draft ?? read<SessionDraft>(sessionStorage, S.draft);
+        if (activeDraft?.id && getApiToken()) {
+          await api.sessions.pause(activeDraft.id).catch(() => undefined);
+        }
+      }
       await api.auth.logout();
     } catch {
-      // ignore
+      // ignore network errors during logout cleanup
+    } finally {
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem(K.logoutEvent, JSON.stringify({ at: Date.now(), reason }));
+        } catch {
+          /* ignore */
+        }
+      }
+      clearLocalAuthState();
+      loggingOutRef.current = false;
+
+      if (reason === "inactivity") {
+        router.replace(isSuperAdmin ? "/superadmin/login?reason=inactivity" : "/login?reason=inactivity");
+      }
     }
-    setApiToken(null);
-    write(localStorage, K.auth, null);
-    write(sessionStorage, K.auth, null);
-    write(localStorage, K.saved, null);
-    write(localStorage, K.services, null);
-    write(localStorage, K.settings, null);
-    write(localStorage, K.confirmed, null);
-    write(sessionStorage, S.draft, null);
-    write(sessionStorage, S.result, null);
-    setUser(null);
-    setAuthed(false);
-    setSaved([]);
-    setConfirmed([]);
-    setServices(DEFAULT_SERVICES);
-    setSettings(EMPTY_SETTINGS);
-    setDraftState(null);
-    setResultState(null);
-    setDataError(null);
-  }, []);
+  }, [clearLocalAuthState, draft, pathname, router, user?.role]);
+
+  const handleStayLoggedIn = useCallback(async () => {
+    setExtendingSession(true);
+    try {
+      await api.auth.refresh();
+      const now = Date.now();
+      markActivityTimestamp(now);
+      lastServerPingRef.current = now;
+      setTimeoutWarningOpen(false);
+    } catch {
+      await logout("inactivity");
+    } finally {
+      setExtendingSession(false);
+    }
+  }, [logout, markActivityTimestamp]);
+
+  // Record meaningful route navigation as user activity
+  useEffect(() => {
+    if (!ready || !authed || warningOpenRef.current) return;
+    const now = Date.now();
+    if (now - lastActivityRef.current >= ACTIVITY_THROTTLE_MS) {
+      markActivityTimestamp(now);
+    }
+  }, [pathname, ready, authed, markActivityTimestamp]);
+
+  // Inactivity monitoring, warning countdown, and multi-tab synchronization
+  useEffect(() => {
+    if (!ready || !authed || typeof window === "undefined") return;
+
+    // Initialize activity timestamp if absent or stale from an older session
+    const storedRaw = localStorage.getItem(K.lastActivity);
+    const storedTime = storedRaw ? Number(storedRaw) : NaN;
+    if (!storedRaw || Number.isNaN(storedTime)) {
+      markActivityTimestamp(Date.now());
+    } else {
+      lastActivityRef.current = storedTime;
+    }
+
+    const onUserActivity = () => {
+      if (warningOpenRef.current) return;
+      const now = Date.now();
+      if (now - lastActivityRef.current < ACTIVITY_THROTTLE_MS) return;
+      markActivityTimestamp(now);
+
+      if (now - lastServerPingRef.current >= SERVER_PING_INTERVAL_MS) {
+        lastServerPingRef.current = now;
+        api.auth.activity().catch((err: any) => {
+          if (err?.status === 401) {
+            void logout("inactivity");
+          }
+        });
+      }
+    };
+
+    const events: (keyof WindowEventMap)[] = [
+      "mousedown",
+      "mousemove",
+      "keydown",
+      "touchstart",
+      "scroll",
+      "pointerdown",
+    ];
+    events.forEach((evt) => window.addEventListener(evt, onUserActivity, { passive: true }));
+
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === K.logoutEvent && e.newValue) {
+        let reason: "manual" | "inactivity" = "manual";
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (parsed?.reason === "inactivity") reason = "inactivity";
+        } catch {
+          /* ignore */
+        }
+        const isSuperAdmin = user?.role === "super_admin" || (pathname?.startsWith("/superadmin") ?? false);
+        clearLocalAuthState();
+        router.replace(
+          isSuperAdmin
+            ? reason === "inactivity"
+              ? "/superadmin/login?reason=inactivity"
+              : "/superadmin/login"
+            : reason === "inactivity"
+              ? "/login?reason=inactivity"
+              : "/login"
+        );
+      } else if (e.key === K.lastActivity && e.newValue) {
+        const ts = Number(e.newValue);
+        if (!Number.isNaN(ts)) {
+          lastActivityRef.current = ts;
+          if (Date.now() - ts < WARNING_AT_MS) {
+            setTimeoutWarningOpen(false);
+          }
+        }
+      }
+    };
+    window.addEventListener("storage", onStorage);
+
+    const interval = window.setInterval(() => {
+      const raw = localStorage.getItem(K.lastActivity);
+      const latest = raw ? Number(raw) : lastActivityRef.current;
+      const effectiveLatest = Number.isNaN(latest) ? lastActivityRef.current : Math.max(latest, lastActivityRef.current);
+      const idleMs = Date.now() - effectiveLatest;
+
+      if (idleMs >= INACTIVITY_TIMEOUT_MS) {
+        void logout("inactivity");
+      } else if (idleMs >= WARNING_AT_MS) {
+        setTimeoutWarningOpen(true);
+        setRemainingSeconds(Math.max(0, Math.ceil((INACTIVITY_TIMEOUT_MS - idleMs) / 1000)));
+      } else if (warningOpenRef.current) {
+        setTimeoutWarningOpen(false);
+      }
+    }, 1000);
+
+    return () => {
+      events.forEach((evt) => window.removeEventListener(evt, onUserActivity));
+      window.removeEventListener("storage", onStorage);
+      window.clearInterval(interval);
+    };
+  }, [ready, authed, clearLocalAuthState, logout, markActivityTimestamp, pathname, router, user?.role]);
 
   const addService = async (s: Omit<ServiceCategory, "id">) => {
     const created = await api.services.create(s.name, s.description);
@@ -386,7 +576,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setResult,
   };
 
-  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+  return (
+    <Ctx.Provider value={value}>
+      {children}
+      {ready && authed && (
+        <SessionTimeoutModal
+          open={timeoutWarningOpen}
+          remainingSeconds={remainingSeconds}
+          busy={extendingSession}
+          onStayLoggedIn={() => void handleStayLoggedIn()}
+          onLogoutNow={() => void logout("inactivity")}
+        />
+      )}
+    </Ctx.Provider>
+  );
 }
 
 export function useApp() {

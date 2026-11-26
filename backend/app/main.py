@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy import inspect, text
 
 from app.api import api_router
 from app.config import get_settings
@@ -22,6 +23,14 @@ logger = logging.getLogger("gatheriq")
 async def lifespan(app: FastAPI):
     logger.info("Initializing GatherIQ database tables...")
     Base.metadata.create_all(bind=engine)
+    try:
+        cols = {c["name"] for c in inspect(engine).get_columns("refresh_tokens")}
+        if "last_activity_at" not in cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE refresh_tokens ADD COLUMN last_activity_at TIMESTAMP"))
+            logger.info("Added last_activity_at column to refresh_tokens.")
+    except Exception as exc:
+        logger.warning("Could not verify refresh_tokens.last_activity_at column: %s", exc)
     try:
         with SessionLocal() as db:
             super_admin = ensure_initial_super_admin(db)

@@ -18,6 +18,16 @@ export default function LoginPage() {
   const [remember, setRemember] = useState(true);
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
   const [busy, setBusy] = useState(false);
+  const [inactivityNotice, setInactivityNotice] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("reason") === "inactivity") {
+        setInactivityNotice(true);
+      }
+    }
+  }, []);
 
   useEffect(() => {
     if (ready && authed) {
@@ -60,6 +70,11 @@ export default function LoginPage() {
           <Brand className="mb-10" />
           <h1 className="text-3xl font-semibold tracking-tight">Welcome back</h1>
           <p className="mt-2 text-sm text-muted">Log in to count and review your congregation.</p>
+          {inactivityNotice && (
+            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-sm text-amber-900">
+              You were logged out due to inactivity. Please log in again to continue.
+            </div>
+          )}
           <form onSubmit={submit} className="mt-8 space-y-4" noValidate>
             <Field label="Email address" htmlFor="email" error={errors.email}><Input id="email" type="email" autoComplete="email" placeholder="you@church.org" value={email} onChange={(e) => setEmail(e.target.value)} aria-invalid={!!errors.email} className="h-11 bg-slate-50" /></Field>
             <Field label="Password" htmlFor="password" error={errors.password}>

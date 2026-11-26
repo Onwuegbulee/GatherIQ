@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./gatheriq.db"
     jwt_secret: str = Field(default="gatheriq-secure-production-jwt-secret-key-32chars", min_length=8)
     jwt_access_minutes: int = 15
+    inactivity_timeout_minutes: int = 15
     refresh_remember_days: int = 30
     refresh_session_hours: int = 12
     cors_origins: str = "http://localhost:3000"

@@ -205,6 +205,17 @@ export const api = {
         clearApiTokens();
       }
     },
+    activity: async () => {
+      const refToken = getRefreshToken();
+      const headers: Record<string, string> = {};
+      if (refToken) {
+        headers["X-Refresh-Token"] = refToken;
+      }
+      return request<{ status: string; inactivity_timeout_minutes: number }>("/api/auth/activity", {
+        method: "POST",
+        headers,
+      });
+    },
     changePassword: async (currentPassword: string, newPassword: string) => {
       return request<{ message: string }>("/api/auth/change-password", {
         method: "POST",
