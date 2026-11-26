@@ -97,6 +97,9 @@ async def attendance_session_websocket(
     try:
         while True:
             message = await websocket.receive()
+            if message.get("type") == "websocket.disconnect":
+                logger.info("WebSocket disconnected for session=%s", session_id)
+                break
             frame_bytes: bytes | None = None
 
             if "bytes" in message and message["bytes"]:

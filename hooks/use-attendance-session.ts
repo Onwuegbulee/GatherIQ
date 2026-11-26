@@ -57,6 +57,7 @@ export function useAttendanceSession(sessionId?: string) {
     const token = getApiToken();
     const wsUrl = `${WS_BASE}/api/ws/session/${sessionId}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
     let socket: WebSocket;
+    let disposed = false;
     setWsStatus("connecting");
     setAiError(null);
 
@@ -65,6 +66,7 @@ export function useAttendanceSession(sessionId?: string) {
       wsRef.current = socket;
 
       socket.onmessage = (event) => {
+        if (disposed) return;
         try {
           const data = JSON.parse(event.data);
           if (data.type === "detection_result") {
@@ -93,6 +95,7 @@ export function useAttendanceSession(sessionId?: string) {
             if (data.message) setAiMessage(data.message);
           } else if (data.type === "connected") {
             setWsStatus("connected");
+            setAiError(null);
             if (typeof data.current_total === "number") setCount(data.current_total);
             if (typeof data.ai_unique_count === "number") setAiUniqueCount(data.ai_unique_count);
             if (typeof data.manual_adjustment === "number") setManualAdjustment(data.manual_adjustment);
@@ -111,6 +114,7 @@ export function useAttendanceSession(sessionId?: string) {
       };
 
       socket.onerror = () => {
+        if (disposed) return;
         setWsStatus("error");
         setIsGenuineAI(false);
         setAiError("AI vision engine connection failed.");
@@ -118,18 +122,25 @@ export function useAttendanceSession(sessionId?: string) {
       };
 
       socket.onclose = () => {
+        if (disposed) return;
         setWsStatus("disconnected");
         setIsGenuineAI(false);
       };
     } catch {
-      setWsStatus("error");
-      setIsGenuineAI(false);
-      setAiError("AI vision engine is not connected.");
-      setAiMessage("AI vision engine is not connected.");
+      if (!disposed) {
+        setWsStatus("error");
+        setIsGenuineAI(false);
+        setAiError("AI vision engine is not connected.");
+        setAiMessage("AI vision engine is not connected.");
+      }
     }
 
     return () => {
+      disposed = true;
       if (wsRef.current) {
+        wsRef.current.onmessage = null;
+        wsRef.current.onerror = null;
+        wsRef.current.onclose = null;
         wsRef.current.close();
         wsRef.current = null;
       }
